@@ -1,0 +1,7 @@
+Plaintext
+streamlit
+gspread
+oauth2client
+requests
+opencv-python-headless
+numpy
