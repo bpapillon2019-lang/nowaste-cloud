@@ -4,5 +4,4 @@ streamlit
 gspread
 google-auth
 requests
-opencv-python-headless
 numpy
