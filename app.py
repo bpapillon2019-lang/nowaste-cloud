@@ -1,6 +1,6 @@
 import streamlit as st
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import unicodedata
 import requests
 import re
@@ -25,15 +25,23 @@ def normalize_text(text):
     )
     return text
 
-# --- CONNEXION GOOGLE SHEETS (VERSION LOCALE JSON) ---
+# --- CONNEXION GOOGLE SHEETS (MODE CLOUD & LOCAL) ---
 @st.cache_resource
 def init_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
-        creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
+        if "gcp_service_account" in st.secrets:
+            # Mode Cloud (via les secrets Streamlit)
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        else:
+            # Mode Local (via ton fichier JSON sur ton PC)
+            creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
+            
         client = gspread.authorize(creds)
         spreadsheet = client.open("NoWaste_DB")
         
+        # Vérification et création des onglets si nécessaire
         sheet_names = [ws.title for ws in spreadsheet.worksheets()]
         
         if "inventory" not in sheet_names:
