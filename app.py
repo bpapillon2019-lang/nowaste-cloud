@@ -15,6 +15,26 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- STYLE CSS POUR LE CADRE DE GUIDAGE ---
+st.markdown("""
+<style>
+    .barcode-guide {
+        border: 2px dashed #4CAF50;
+        border-radius: 10px;
+        padding: 10px;
+        background-color: rgba(76, 175, 80, 0.05);
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .barcode-guide p {
+        color: #2E7D32;
+        font-weight: bold;
+        font-size: 14px;
+        margin: 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 def normalize_text(text):
     if not text:
         return ""
@@ -31,17 +51,14 @@ def init_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
         if "gcp_service_account" in st.secrets:
-            # Mode Cloud (via les secrets Streamlit)
             creds_dict = dict(st.secrets["gcp_service_account"])
             creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         else:
-            # Mode Local (via ton fichier JSON sur ton PC)
             creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
             
         client = gspread.authorize(creds)
         spreadsheet = client.open("NoWaste_DB")
         
-        # Vérification et création des onglets si nécessaire
         sheet_names = [ws.title for ws in spreadsheet.worksheets()]
         
         if "inventory" not in sheet_names:
@@ -147,7 +164,7 @@ def rename_location_in_db(old_loc, new_loc):
             
     cat_sheet = db.worksheet("catalog")
     loc_cells = cat_sheet.findall(old_loc)
-    for cell in loc_cells:
+    for cell in cell_cells:
         if cell.col == 2:
             cat_sheet.update_cell(cell.row, 2, new_loc)
     if not loc_cells:
@@ -188,21 +205,39 @@ prod_catalog, loc_list = get_catalog_lists()
 
 with st.sidebar:
     st.header("📷 Scanner de code-barres")
+    
+    # --- CADRE DE GUIDAGE VISUEL ---
+    st.markdown("""
+        <div class="barcode-guide">
+            <p>🎯 Centre bien le code-barres au milieu en laissant de la marge blanche de chaque côté</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
     picture = st.camera_input("Prendre en photo le code-barres")
     
     barcode_data = ""
     
-    if picture is not None:
+    # Option de secours manuelle si besoin
+    manual_barcode = st.text_input("Ou saisir les chiffres du code", placeholder="Ex: 3600900022521")
+    if manual_barcode:
+        barcode_data = manual_barcode.strip()
+    
+    if picture is not None and not barcode_data:
         bytes_data = picture.getvalue()
         np_arr = np.frombuffer(bytes_data, np.uint8)
         frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         
-        # --- AMÉLIORATION DE LA DÉTECTION ---
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.equalizeHist(gray)
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        equalized = cv2.equalizeHist(blurred)
+        thresh = cv2.adaptiveThreshold(
+            equalized, 255, 
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 11, 2
+        )
         
         detector = cv2.barcode.BarcodeDetector()
-        res = detector.detectAndDecode(gray)
+        res = detector.detectAndDecode(thresh)
         
         if len(res) == 4:
             retval, decoded_info, decoded_type, points = res
@@ -213,38 +248,38 @@ with st.sidebar:
             if retval and len(decoded_info) > 0 and decoded_info[0]:
                 barcode_data = decoded_info[0]
                 
-        # Seconde passe sur l'image couleur originale si besoin
         if not barcode_data:
-            res_orig = detector.detectAndDecode(frame)
-            if len(res_orig) == 4 and res_orig[0] and len(res_orig[1]) > 0 and res_orig[1][0]:
-                barcode_data = res_orig[1][0]
-            elif len(res_orig) == 2 and res_orig[0] and len(res_orig[1]) > 0 and res_orig[1][0]:
-                barcode_data = res_orig[1][0]
+            res_gray = detector.detectAndDecode(equalized)
+            if len(res_gray) == 4 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
+                barcode_data = res_gray[1][0]
+            elif len(res_gray) == 2 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
+                barcode_data = res_gray[1][0]
 
-        if barcode_data:
-            st.success(f"Code détecté : {barcode_data}")
-            url = f"https://world.openfoodfacts.org/api/v0/product/{barcode_data}.json"
-            headers = {'User-Agent': 'NoWasteCloud_Bertrand - Python App - Version 1.0'}
-            try:
-                response = requests.get(url, headers=headers, timeout=5)
-                data = response.json()
-                if data.get('status') == 1:
-                    p_name = data['product'].get('product_name', 'Sans nom')
-                    brand = data['product'].get('brands', '')
-                    qty_str = data['product'].get('quantity', '')
-                    
-                    st.session_state["scanned_product_name"] = f"{p_name} {brand}".strip()
-                    if qty_str:
-                        match = re.match(r"([\d\.]+)\s*(.*)", qty_str)
-                        if match:
-                            st.session_state["scanned_qty"] = float(match.group(1))
-                    st.rerun()
-                else:
-                    st.warning("Produit inconnu dans Open Food Facts.")
-            except Exception as e:
-                st.error(f"Erreur API : {e}")
-        else:
-            st.warning("⚠️ Code non détecté. 💡 Rapproche bien le code-barres (10-15 cm) en évitant les reflets directs.")
+        if not barcode_data:
+            st.warning("⚠️ Code non détecté. Utilise la saisie manuelle juste au-dessus 👆")
+
+    if barcode_data:
+        st.success(f"Code validé : {barcode_data}")
+        url = f"https://world.openfoodfacts.org/api/v0/product/{barcode_data}.json"
+        headers = {'User-Agent': 'NoWasteCloud_Bertrand - Python App - Version 1.0'}
+        try:
+            response = requests.get(url, headers=headers, timeout=5)
+            data = response.json()
+            if data.get('status') == 1:
+                p_name = data['product'].get('product_name', 'Sans nom')
+                brand = data['product'].get('brands', '')
+                qty_str = data['product'].get('quantity', '')
+                
+                st.session_state["scanned_product_name"] = f"{p_name} {brand}".strip()
+                if qty_str:
+                    match = re.match(r"([\d\.]+)\s*(.*)", qty_str)
+                    if match:
+                        st.session_state["scanned_qty"] = float(match.group(1))
+                st.rerun()
+            else:
+                st.warning("Produit inconnu dans Open Food Facts.")
+        except Exception as e:
+            st.error(f"Erreur API : {e}")
 
     st.divider()
     st.header("➕ Ajouter un produit")
