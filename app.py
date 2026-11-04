@@ -407,9 +407,6 @@ with tab_inv:
 
     for item in filtered_items:
         item_id, name, location, expiry_date, quantity, unit = item
-        
-        if quantity.is_integer():
-            quantity = int(quantity)
 
         status_text = "En cours"
         try:
@@ -423,11 +420,11 @@ with tab_inv:
             pass
 
         with st.container(border=True):
-            col1, col2, col3, col4 = st.columns([3, 2, 3, 1])
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
             
             with col1:
                 st.markdown(f"**{name}**")
-                st.caption(f"Qté : {quantity} {unit}  •  Expire le : {expiry_date}  •  [{status_text}]")
+                st.caption(f"Expire le : {expiry_date}  •  [{status_text}]")
                 
             with col2:
                 new_location_choice = st.selectbox("Lieu", options=loc_list, index=loc_list.index(location) if location in loc_list else 0, key=f"loc_sel_{item_id}", label_visibility="collapsed")
@@ -437,22 +434,14 @@ with tab_inv:
                     st.rerun()
                 
             with col3:
-                subcol1, subcol2, subcol3 = st.columns(3)
-                with subcol1:
-                    if st.button("➖", key=f"minus_{item_id}"):
-                        new_q = quantity - 1
-                        if new_q <= 0:
-                            delete_inventory_item(item_id)
-                        else:
-                            update_item_quantity(item_id, new_q)
-                        st.rerun()
-                with subcol2:
-                    st.write(f"**{quantity}**")
-                with subcol3:
-                    if st.button("➕", key=f"plus_{item_id}"):
-                        new_q = quantity + 1
-                        update_item_quantity(item_id, new_q)
-                        st.rerun()
+                # Remplacement de l'affichage par un champ numérique direct (number_input)
+                new_qty = st.number_input("Quantité", min_value=0.0, value=float(quantity), step=1.0, key=f"qty_input_{item_id}", label_visibility="collapsed")
+                if new_qty != quantity:
+                    if new_qty <= 0:
+                        delete_inventory_item(item_id)
+                    else:
+                        update_item_quantity(item_id, new_qty)
+                    st.rerun()
 
             with col4:
                 if st.button("❌", key=f"del_{item_id}"):
@@ -472,7 +461,6 @@ with tab_expiry:
         try:
             exp_obj = datetime.strptime(expiry_date, "%Y-%m-%d").date()
             delta = (exp_obj - today).days
-            # On filtre pour ceux périmés (delta < 0) ou périmant dans les 7 jours (0 <= delta <= 7)
             if delta <= 7:
                 upcoming_expiry_items.append((item, delta))
         except:
@@ -481,7 +469,6 @@ with tab_expiry:
     if not upcoming_expiry_items:
         st.success("🎉 Aucun produit ne péremptera dans les 7 prochains jours !")
     else:
-        # Regroupement par type / catégorie
         categorized_dict = {}
         for item, delta in upcoming_expiry_items:
             cat = categorize_product(item[1])
@@ -489,7 +476,6 @@ with tab_expiry:
                 categorized_dict[cat] = []
             categorized_dict[cat].append((item, delta))
 
-        # Affichage trié par catégorie
         for cat in sorted(categorized_dict.keys()):
             st.markdown(f"### {cat}")
             for item, delta in categorized_dict[cat]:
