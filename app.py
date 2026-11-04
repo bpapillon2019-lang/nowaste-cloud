@@ -23,6 +23,16 @@ def normalize_text(text):
     )
     return text
 
+def format_date_fr(date_str):
+    """Convertit une date YYYY-MM-DD en JJ/MM/AAAA"""
+    if not date_str:
+        return ""
+    try:
+        dt = datetime.datetime.strptime(str(date_str).strip(), "%Y-%m-%d")
+        return dt.strftime("%d/%m/%Y")
+    except:
+        return date_str
+
 # --- CONNEXION GOOGLE SHEETS ---
 @st.cache_resource
 def init_google_sheets():
@@ -376,7 +386,7 @@ with tab_shop:
                         chosen_loc = st.selectbox(f"Emplacement pour {s_name}", options=loc_list, index=loc_list.index(default_target_loc) if default_target_loc in loc_list else 0, key=f"val_loc_{s_id}")
                     with c_date:
                         pred_date = calculate_predicted_date(s_name, chosen_loc)
-                        chosen_date = st.date_input(f"Date de péremption pour {s_name}", value=pred_date, key=f"val_date_{s_id}")
+                        chosen_date = st.date_input(f"Date de péremption pour {s_name} (JJ/MM/AAAA)", value=pred_date, key=f"val_date_{s_id}")
                     
                     batch_expiry_data[s_id] = (s_item, chosen_loc, chosen_date)
                     st.write("---")
@@ -440,6 +450,7 @@ with tab_inv:
     for item in filtered_items:
         item_id, name, location, expiry_date, quantity, unit = item
 
+        expiry_fr = format_date_fr(expiry_date)
         status_text = "En cours"
         try:
             exp_obj = datetime.strptime(expiry_date, "%Y-%m-%d").date()
@@ -456,7 +467,7 @@ with tab_inv:
             
             with col1:
                 st.markdown(f"**{name}**")
-                st.caption(f"Expire le : {expiry_date}  •  [{status_text}]")
+                st.caption(f"Expire le : {expiry_fr}  •  [{status_text}]")
                 
             with col2:
                 new_location_choice = st.selectbox("Lieu", options=loc_list, index=loc_list.index(location) if location in loc_list else 0, key=f"loc_sel_{item_id}", label_visibility="collapsed")
@@ -518,12 +529,13 @@ with tab_expiry:
                 if quantity.is_integer():
                     quantity = int(quantity)
                 
+                expiry_fr = format_date_fr(expiry_date)
                 if delta < 0:
                     badge = f"🔴 **Périmé depuis {abs(delta)} jour(s)**"
                 elif delta == 0:
                     badge = "⚠️ **Périme aujourd'hui !**"
                 else:
-                    badge = f"🟠 **Expire dans {delta} jour(s)** (le {expiry_date})"
+                    badge = f"🟠 **Expire dans {delta} jour(s)** (le {expiry_fr})"
                 
                 with st.container(border=True):
                     c1, c2 = st.columns([3, 1])
@@ -556,7 +568,7 @@ with st.sidebar:
         unit_input = st.selectbox("Unité", options=unit_options, key="inv_u_select_box")
 
     predicted_date = calculate_predicted_date(final_name, selected_loc)
-    expiry_input = st.date_input("Date de péremption", value=predicted_date)
+    expiry_input = st.date_input("Date de péremption (JJ/MM/AAAA)", value=predicted_date)
 
     if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
         if final_name:
