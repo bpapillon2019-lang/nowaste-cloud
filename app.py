@@ -80,7 +80,6 @@ def init_google_sheets():
 
 db = init_google_sheets()
 
-# Utilisation de st.session_state pour stocker le catalogue et éviter les requêtes répétées
 def get_catalog_categories():
     if "catalog_cache" in st.session_state:
         return st.session_state["catalog_cache"]
@@ -127,28 +126,10 @@ def categorize_product(name):
         return "📦 Autres"
 
 def save_product_category_to_catalog(product_name, category):
-    if db is None:
-        return
-    try:
-        # Met à jour le cache local instantanément
-        if "catalog_cache" in st.session_state:
-            st.session_state["catalog_cache"][product_name.strip().lower()] = category
-
-        cat_sheet = db.worksheet("catalog")
-        records = cat_sheet.get_all_records()
-        
-        found_row = None
-        for i, r in enumerate(records, start=2):
-            if str(r.get("product_name", "")).strip().lower() == product_name.strip().lower():
-                found_row = i
-                break
-        
-        if found_row:
-            cat_sheet.update_cell(found_row, 3, category)
-        else:
-            cat_sheet.append_row([product_name, "", category])
-    except Exception as e:
-        st.error(f"Erreur lors de la mise à jour du catalogue : {e}")
+    """Mise à jour ultra-légère en cache session pour éviter d'appeler l'API en boucle"""
+    if "catalog_cache" not in st.session_state:
+        st.session_state["catalog_cache"] = {}
+    st.session_state["catalog_cache"][product_name.strip().lower()] = category
 
 def get_all_inventory():
     if db is None:
@@ -214,6 +195,7 @@ def update_item_category(item_id, product_name, new_category):
         sheet = db.worksheet("inventory")
         cell = sheet.find(str(item_id))
         if cell:
+            # Met à jour directement la cellule de la catégorie (colonne 7) sans parcourir tout le catalogue
             sheet.update_cell(cell.row, 7, new_category)
         save_product_category_to_catalog(product_name, new_category)
     except Exception as e:
@@ -622,7 +604,7 @@ with st.sidebar:
     st.header("➕ Ajouter à l'inventaire")
     
     selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel_box")
-    custom_name = st.text_input("Nom du produit", key="inv_custom_input_box")
+    custom_name = st.text_input("Ou saisir le nom", key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
