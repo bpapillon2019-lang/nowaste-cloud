@@ -184,17 +184,13 @@ def get_all_inventory():
         return st.session_state.get("cached_inventory", [])
 
 def add_inventory_item(name, location, expiry_date, quantity, unit, category):
-    """Ajoute systématiquement une nouvelle ligne indépendante dans l'inventaire (gestion des dates multiples)"""
     if db is None:
         return
     try:
         sheet = db.worksheet("inventory")
         records = sheet.get_all_records()
-        
-        # Génère toujours un nouvel ID unique pour créer une ligne distincte
         new_id = max([r.get("id", 0) for r in records], default=0) + 1
         sheet.append_row([new_id, name, location, expiry_date, quantity, unit, category])
-        
         save_product_category_to_catalog(name, category)
     except Exception as e:
         st.error(f"Erreur lors de l'ajout à l'inventaire : {e}")
@@ -366,13 +362,22 @@ prod_catalog, loc_list = get_catalog_lists()
 all_inv_items = get_all_inventory()
 today_date = datetime.datetime.now().date()
 alert_count = 0
+urgent_critical_count = 0
+
 for it in all_inv_items:
     try:
         exp_dt = datetime.datetime.strptime(str(it[3]).strip(), "%Y-%m-%d").date()
-        if (exp_dt - today_date).days <= 7:
+        delta = (exp_dt - today_date).days
+        if delta <= 7:
             alert_count += 1
+        if delta <= 3: # Produits périmés ou à consommer dans les 3 jours
+            urgent_critical_count += 1
     except:
         pass
+
+# --- BANNIÈRE ROUGE D' ALERTE (si un produit pérempte dans les 3 jours ou est périmé) ---
+if urgent_critical_count > 0:
+    st.error(f"🚨 **ALERTE URGENTE :** Vous avez **{urgent_critical_count} produit(s)** périmé(s) ou dont la date de péremption est inférieure ou égale à 3 jours ! Veuillez consulter l'onglet dédié.")
 
 expiry_tab_label = f"⏳ Périmés sous 7 jours ({alert_count})" if alert_count > 0 else "⏳ Périmés sous 7 jours"
 
