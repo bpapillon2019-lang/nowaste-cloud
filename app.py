@@ -14,19 +14,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- STYLE CSS ---
-st.markdown("""
-<style>
-    .voice-box {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #d1d5db;
-        margin-bottom: 20px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 def normalize_text(text):
     if not text:
         return ""
@@ -253,26 +240,12 @@ def calculate_predicted_date(name, location):
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
-# --- ANALYSEUR VOCAL OPTIMISÉ ---
-def process_voice_command(command_text):
+# --- ANALYSEUR VOCAL POUR PRÉ-REMPLIR LE FORMULAIRE ---
+def parse_voice_to_form(command_text):
     original_text = command_text.strip()
     text = normalize_text(original_text)
     
-    action = None
-    if any(w in text for w in ["ajoute", "ajouter", "mets", "mettre", "remets", "rajoute", "note", "prends"]):
-        action = "add"
-    elif any(w in text for w in ["retire", "retirer", "supprime", "supprimer", "enleve", "enlève"]):
-        action = "remove"
-        
-    if not action:
-        return f"❌ Action non comprise : « {original_text} »."
-
-    target = "shop"
-    if any(w in text for w in ["inventaire", "frigo", "congelateur", "placard", "stock"]):
-        target = "inventory"
-    elif any(w in text for w in ["courses", "liste"]):
-        target = "shop"
-
+    # Extraction de la quantité
     qty = 1.0
     qty_match = re.search(r'\b(\d+([.,]\d+)?)\b', text)
     if qty_match:
@@ -284,11 +257,20 @@ def process_voice_command(command_text):
                 qty = float(val)
                 break
 
+    # Extraction de l'unité si présente
+    unit = "unité(s)"
+    unit_mapping = {"g": "g", "gramme": "g", "grammes": "g", "kg": "kg", "kilo": "kg", "kilos": "kg", "ml": "ml", "litre": "L", "litres": "L", "l": "L", "boite": "boîte(s)", "boites": "boîte(s)", "pack": "pack(s)", "packs": "pack(s)"}
+    for w, u_val in unit_mapping.items():
+        if f" {w} " in f" {text} ":
+            unit = u_val
+            break
+
+    # Nettoyage pour isoler le nom du produit
     stop_words = [
         "ajoute", "ajouter", "mets", "mettre", "remets", "rajoute", "note", "prends",
         "retire", "retirer", "supprime", "supprimer", "enleve", "enlève",
         "dans", "l", "inventaire", "les", "courses", "de", "du", "la", "au", "stock",
-        "un", "une", "des", "le", "les", "et", "à", "a"
+        "un", "une", "des", "le", "les", "et", "à", "a", "g", "grammes", "kg", "kilos", "ml", "l", "litres", "boite", "boites", "pack", "packs"
     ]
     
     words = text.split()
@@ -298,65 +280,26 @@ def process_voice_command(command_text):
     if not product_name:
         product_name = original_text.capitalize()
 
-    _, loc_list = get_catalog_lists()
+    return product_name, qty, unit
 
-    if action == "add":
-        if target == "inventory":
-            default_loc = loc_list[0] if loc_list else "Frigo ❄️"
-            pred_date = calculate_predicted_date(product_name, default_loc)
-            add_inventory_item(product_name, default_loc, pred_date.strftime("%Y-%m-%d"), qty, "unité(s)")
-            return f"✅ Ajouté à l'inventaire ({default_loc}) : {qty} x {product_name}"
-        else:
-            add_to_shopping_list(product_name, qty, "unité(s)")
-            return f"✅ Ajouté aux courses : {qty} x {product_name}"
-            
-    elif action == "remove":
-        if target == "inventory":
-            inv_items = get_all_inventory()
-            found = False
-            for i_id, i_name, i_loc, i_exp, i_qty, i_unit in inv_items:
-                if normalize_text(product_name) in normalize_text(i_name) or normalize_text(i_name) in normalize_text(product_name):
-                    new_q = i_qty - qty
-                    if new_q <= 0:
-                        delete_inventory_item(i_id)
-                    else:
-                        update_item_quantity(i_id, new_q)
-                    found = True
-                    break
-            if found:
-                return f"🗑️ Retiré de l'inventaire : {product_name}"
-            else:
-                return f"⚠️ Produit '{product_name}' introuvable dans l'inventaire."
-        else:
-            shop_items = get_shopping_list()
-            found = False
-            for s_id, s_name, s_qty, s_unit in shop_items:
-                if normalize_text(product_name) in normalize_text(s_name) or normalize_text(s_name) in normalize_text(product_name):
-                    delete_shopping_item(s_id)
-                    found = True
-                    break
-            if found:
-                return f"🗑️ Retiré des courses : {product_name}"
-            else:
-                return f"⚠️ Produit '{product_name}' introuvable dans la liste de courses."
-
-    return "Commande non traitée."
+# --- GESTION DES ÉTATS DE SESSION POUR LE FORMULAIRE ---
+if "form_product_name" not in st.session_state:
+    st.session_state["form_product_name"] = ""
+if "form_qty" not in st.session_state:
+    st.session_state["form_qty"] = 1.0
+if "form_unit" not in st.session_state:
+    st.session_state["form_unit"] = "unité(s)"
 
 # --- INTERFACE STREAMLIT ---
 st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
 
 prod_catalog, loc_list = get_catalog_lists()
 
-# Gestion de l'état de session pour la voix et les messages de retour
-if "last_voice_msg" not in st.session_state:
-    st.session_state["last_voice_msg"] = ""
-
-# --- ASSISTANT VOCAL AUTOMATIQUE ROBUSTE ---
+# --- ASSISTANT VOCAL POUR PRÉ-REMPLIR LE FORMULAIRE ---
 with st.container():
-    st.markdown("### 🎙️ Assistant Vocal Intelligent (Auto-validation)")
-    st.markdown("Clique sur **🎤 Parler**, dicte ta phrase : l'action s'exécute **toute seule** dès que tu as fini de parler !")
+    st.markdown("### 🎙️ Assistant Vocal (Pré-remplissage du formulaire)")
+    st.markdown("Clique sur **🎤 Parler** et dicte ton article (ex: *'3 boîtes de lait'*). Les champs de la barre latérale se rempliront automatiquement !")
     
-    # Composant HTML/JS utilisant postMessage pour communiquer de manière fiable avec Streamlit
     voice_html = """
         <div style="font-family: sans-serif; display: flex; align-items: center; gap: 15px; padding: 5px 0;">
             <button id="record-btn" onclick="toggleSpeech()" style="background-color: #4CAF50; color: white; border: none; padding: 12px 24px; border-radius: 25px; font-weight: bold; cursor: pointer; font-size: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
@@ -384,13 +327,11 @@ with st.container():
 
                 recognition.onresult = function(event) {
                     const speechResult = event.results[0][0].transcript;
-                    document.getElementById('status').innerText = 'Compris : "' + speechResult + '" - Traitement...';
+                    document.getElementById('status').innerText = 'Compris : "' + speechResult + '" - Mise à jour...';
                     
-                    // Envoi sécurisé au conteneur Streamlit parent
-                    window.parent.postMessage({
-                        type: 'streamlit:setComponentValue',
-                        value: speechResult
-                    }, '*');
+                    const currentUrl = new URL(window.parent.location.href);
+                    currentUrl.searchParams.set('voice_fill', speechResult);
+                    window.parent.location.href = currentUrl.toString();
                 };
 
                 recognition.onerror = function(event) {
@@ -423,45 +364,42 @@ with st.container():
         </script>
     """
     
-    # Récupération de la valeur vocale via le composant Streamlit customisé
-    spoken_text = components.html(voice_html, height=70)
+    components.html(voice_html, height=70)
 
-    # Analyse de la commande vocale si elle est reçue
-    # Note: Streamlit gère le retour de components.html via l'assignation de variable (si supporté) ou on utilise les query_params de secours.
-    # Pour garantir la compatibilité cloud maximale, on garde une écoute conjointe query_params / session_state.
+    # Récupération de la voix pour remplir l'état de session du formulaire
     query_params = st.query_params
-    if "voice_cmd" in query_params:
-        spoken_text_val = query_params["voice_cmd"]
+    if "voice_fill" in query_params:
+        spoken_text = query_params["voice_fill"]
         st.query_params.clear()
-        st.session_state["last_voice_msg"] = process_voice_command(spoken_text_val)
+        
+        p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
+        st.session_state["form_product_name"] = p_name
+        st.session_state["form_qty"] = p_qty
+        st.session_state["form_unit"] = p_unit
+        st.success(f"✨ Formulaire pré-rempli avec : **{p_qty} {p_unit} de {p_name}** (Vérifie à gauche et clique sur Ajouter)")
         st.rerun()
-
-    if st.session_state["last_voice_msg"]:
-        msg = st.session_state["last_voice_msg"]
-        if "✅" in msg or "🗑️" in msg:
-            st.success(msg)
-        else:
-            st.warning(msg)
-        # Nettoyage pour ne pas l'afficher en boucle
-        st.session_state["last_voice_msg"] = ""
 
 st.divider()
 
-# --- BARRE LATÉRALE : AJOUT MANUEL & GESTION DES LIEUX ---
+# --- BARRE LATÉRALE : FORMULAIRE D'AJOUT MANUEL & LIEUX ---
 with st.sidebar:
     st.header("➕ Ajouter un produit")
     
     selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog)
-    custom_name = st.text_input("Nom personnalisé")
+    
+    # Le champ est pré-rempli automatiquement par la voix si l'utilisateur a parlé
+    custom_name = st.text_input("Nom personnalisé", value=st.session_state["form_product_name"])
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     selected_loc = st.selectbox("Emplacement", options=loc_list)
 
     col_q1, col_q2 = st.columns([1, 2])
     with col_q1:
-        qty_input = st.number_input("Qté", min_value=0.1, value=1.0, step=1.0)
+        qty_input = st.number_input("Qté", min_value=0.1, value=float(st.session_state["form_qty"]), step=1.0)
     with col_q2:
-        unit_input = st.selectbox("Unité", options=["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"], index=0)
+        unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
+        default_unit_idx = unit_options.index(st.session_state["form_unit"]) if st.session_state["form_unit"] in unit_options else 0
+        unit_input = st.selectbox("Unité", options=unit_options, index=default_unit_idx)
 
     predicted_date = calculate_predicted_date(final_name, selected_loc)
     expiry_input = st.date_input("Date de péremption", value=predicted_date)
@@ -469,6 +407,10 @@ with st.sidebar:
     if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
         if final_name:
             add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input)
+            # Réinitialisation des champs vocaux après ajout réussi
+            st.session_state["form_product_name"] = ""
+            st.session_state["form_qty"] = 1.0
+            st.session_state["form_unit"] = "unité(s)"
             st.success(f"Ajouté : {final_name}")
             st.rerun()
         else:
@@ -535,7 +477,6 @@ with tab_shop:
 
         col_act1, col_act2 = st.columns(2)
         with col_act1:
-            # Validation des achats basculée par défaut dans le premier lieu disponible (ex: Frigo) sans sélecteur
             if st.button("✔️ Valider les achats & Basculer en Inventaire", type="primary", use_container_width=True):
                 if checked_to_validate:
                     default_target_loc = loc_list[0] if loc_list else "Frigo ❄️"
