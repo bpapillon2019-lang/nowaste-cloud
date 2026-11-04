@@ -277,22 +277,27 @@ def parse_voice_to_form(command_text):
     if not product_name:
         product_name = original_text.capitalize()
 
-    return product_name, qty, unit
+    return target_type(text), product_name, qty, unit
+
+def target_type(text):
+    if any(w in text for w in ["courses", "liste", "acheter", "achat"]):
+        return "shopping"
+    return "inventory"
 
 # --- GESTION DES ÉTATS DE SESSION ---
-if "inv_form_product" not in st.session_state:
-    st.session_state["inv_form_product"] = ""
-if "inv_form_qty" not in st.session_state:
-    st.session_state["inv_form_qty"] = 1.0
-if "inv_form_unit" not in st.session_state:
-    st.session_state["inv_form_unit"] = "unité(s)"
+if "inv_product" not in st.session_state:
+    st.session_state["inv_product"] = ""
+if "inv_qty" not in st.session_state:
+    st.session_state["inv_qty"] = 1.0
+if "inv_unit" not in st.session_state:
+    st.session_state["inv_unit"] = "unité(s)"
 
-if "shop_form_product" not in st.session_state:
-    st.session_state["shop_form_product"] = ""
-if "shop_form_qty" not in st.session_state:
-    st.session_state["shop_form_qty"] = 1.0
-if "shop_form_unit" not in st.session_state:
-    st.session_state["shop_form_unit"] = "unité(s)"
+if "shop_product" not in st.session_state:
+    st.session_state["shop_product"] = ""
+if "shop_qty" not in st.session_state:
+    st.session_state["shop_qty"] = 1.0
+if "shop_unit" not in st.session_state:
+    st.session_state["shop_unit"] = "unité(s)"
 
 # --- INTERFACE STREAMLIT ---
 st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
@@ -302,7 +307,7 @@ prod_catalog, loc_list = get_catalog_lists()
 # --- ONGLETS PRINCIPAUX ---
 tab_shop, tab_inv, tab_recipes = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", "🍳 Idées de Recettes"])
 
-# --- FONCTION COMPOSANT VOCAL GÉNÉRIQUE ---
+# --- FONCTION COMPOSANT VOCAL ---
 def render_voice_mic(context_key):
     voice_html = f"""
         <div style="font-family: sans-serif; display: flex; align-items: center; gap: 15px; padding: 5px 0;">
@@ -334,7 +339,7 @@ def render_voice_mic(context_key):
                     document.getElementById('status-{context_key}').innerText = 'Compris : "' + speechResult + '"';
                     
                     const currentUrl = new URL(window.parent.location.href);
-                    currentUrl.searchParams.set('voice_{context_key}', speechResult);
+                    currentUrl.searchParams.set('voice_cmd', speechResult);
                     window.parent.location.href = currentUrl.toString();
                 }};
 
@@ -369,26 +374,22 @@ def render_voice_mic(context_key):
     """
     return components.html(voice_html, height=60)
 
-# Gestion de la récupération vocale via l'URL
+# Traitement de la voix globale dès le chargement si présente dans l'URL
 query_params = st.query_params
-if "voice_inv" in query_params:
-    spoken_text = query_params["voice_inv"]
+if "voice_cmd" in query_params:
+    spoken_text = query_params["voice_cmd"]
     st.query_params.clear()
-    p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
-    st.session_state["inv_form_product"] = p_name
-    st.session_state["inv_form_qty"] = p_qty
-    st.session_state["inv_form_unit"] = p_unit
-    st.success(f"📦 Inventaire pré-rempli : **{p_qty} {p_unit} de {p_name}**")
-    st.rerun()
-
-if "voice_shop" in query_params:
-    spoken_text = query_params["voice_shop"]
-    st.query_params.clear()
-    p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
-    st.session_state["shop_form_product"] = p_name
-    st.session_state["shop_form_qty"] = p_qty
-    st.session_state["shop_form_unit"] = p_unit
-    st.success(f"🛒 Liste de Courses pré-remplie : **{p_qty} {p_unit} de {p_name}**")
+    
+    target, p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
+    
+    if target == "inventory":
+        st.session_state["inv_product"] = p_name
+        st.session_state["inv_qty"] = p_qty
+        st.session_state["inv_unit"] = p_unit
+    else:
+        st.session_state["shop_product"] = p_name
+        st.session_state["shop_qty"] = p_qty
+        st.session_state["shop_unit"] = p_unit
     st.rerun()
 
 
@@ -401,24 +402,24 @@ with tab_shop:
     
     col_s1, col_s2, col_s3, col_s4 = st.columns([3, 1, 2, 1])
     with col_s1:
-        shop_prod_sel = st.selectbox("Produit", options=["-- Sélectionner ou taper --"] + prod_catalog, key="shop_prod")
-        shop_custom_name = st.text_input("Ou saisir le nom", value=st.session_state["shop_form_product"], key="shop_custom")
+        shop_prod_sel = st.selectbox("Produit", options=["-- Sélectionner ou taper --"] + prod_catalog, key="shop_prod_sel_box")
+        shop_custom_name = st.text_input("Ou saisir le nom", value=st.session_state["shop_product"], key="shop_custom_input_box")
         final_shop_name = shop_custom_name.strip() if shop_custom_name.strip() else (shop_prod_sel if shop_prod_sel != "-- Sélectionner ou taper --" else "")
     with col_s2:
-        shop_qty = st.number_input("Qté", min_value=0.1, value=float(st.session_state["shop_form_qty"]), step=1.0, key="shop_q")
+        shop_qty = st.number_input("Qté", min_value=0.1, value=float(st.session_state["shop_qty"]), step=1.0, key="shop_q_input_box")
     with col_s3:
         shop_unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
-        default_shop_unit_idx = shop_unit_options.index(st.session_state["shop_form_unit"]) if st.session_state["shop_form_unit"] in shop_unit_options else 0
-        shop_unit = st.selectbox("Unité", options=shop_unit_options, index=default_shop_unit_idx, key="shop_u")
+        default_shop_unit_idx = shop_unit_options.index(st.session_state["shop_unit"]) if st.session_state["shop_unit"] in shop_unit_options else 0
+        shop_unit = st.selectbox("Unité", options=shop_unit_options, index=default_shop_unit_idx, key="shop_u_select_box")
     with col_s4:
         st.write("")
         st.write("")
         if st.button("➕ Ajouter aux courses", type="primary"):
             if final_shop_name:
                 add_to_shopping_list(final_shop_name, shop_qty, shop_unit)
-                st.session_state["shop_form_product"] = ""
-                st.session_state["shop_form_qty"] = 1.0
-                st.session_state["shop_form_unit"] = "unité(s)"
+                st.session_state["shop_product"] = ""
+                st.session_state["shop_qty"] = 1.0
+                st.session_state["shop_unit"] = "unité(s)"
                 st.success(f"Ajouté aux courses : {final_shop_name}")
                 st.rerun()
 
@@ -645,19 +646,19 @@ with st.sidebar:
     st.markdown("**🎙️ Dictée vocale pour l'inventaire :**")
     render_voice_mic("inv")
     
-    selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel")
-    custom_name = st.text_input("Nom du produit", value=st.session_state["inv_form_product"], key="inv_custom_input")
+    selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel_box")
+    custom_name = st.text_input("Nom du produit", value=st.session_state["inv_product"], key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     selected_loc = st.selectbox("Emplacement", options=loc_list)
 
     col_q1, col_q2 = st.columns([1, 2])
     with col_q1:
-        qty_input = st.number_input("Qté", min_value=0.1, value=float(st.session_state["inv_form_qty"]), step=1.0, key="inv_qty_input")
+        qty_input = st.number_input("Qté", min_value=0.1, value=float(st.session_state["inv_qty"]), step=1.0, key="inv_q_input_box")
     with col_q2:
         unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
-        default_unit_idx = unit_options.index(st.session_state["inv_form_unit"]) if st.session_state["inv_form_unit"] in unit_options else 0
-        unit_input = st.selectbox("Unité", options=unit_options, index=default_unit_idx, key="inv_unit_input")
+        default_unit_idx = unit_options.index(st.session_state["inv_unit"]) if st.session_state["inv_unit"] in unit_options else 0
+        unit_input = st.selectbox("Unité", options=unit_options, index=default_unit_idx, key="inv_u_select_box")
 
     predicted_date = calculate_predicted_date(final_name, selected_loc)
     expiry_input = st.date_input("Date de péremption", value=predicted_date)
@@ -665,9 +666,9 @@ with st.sidebar:
     if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
         if final_name:
             add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input)
-            st.session_state["inv_form_product"] = ""
-            st.session_state["inv_form_qty"] = 1.0
-            st.session_state["inv_form_unit"] = "unité(s)"
+            st.session_state["inv_product"] = ""
+            st.session_state["inv_qty"] = 1.0
+            st.session_state["inv_unit"] = "unité(s)"
             st.success(f"Ajouté : {final_name}")
             st.rerun()
         else:
