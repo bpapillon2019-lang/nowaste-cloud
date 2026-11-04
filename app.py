@@ -63,7 +63,7 @@ def init_google_sheets():
             default_products = [
                 "Beurre", "Crème fraîche", "Fromage", "Jambon", 
                 "Lait", "Œufs", "Pâtes", "Poulet", "Riz", 
-                "Steak haché", "Yaourt nature", "Merguez"
+                "Steak haché", "Yaourt nature", "Merguez", "Cheddar"
             ]
             default_locations = [
                 "Frigo ❄️", "Congélateur 🧊 - Tiroir 1", 
@@ -278,11 +278,14 @@ def calculate_predicted_date(name, location):
         days = 365
     else:
         meat = ["poulet", "steak", "viand", "poisson", "jambon", "merguez", "lardons"]
-        dairy = ["beurre", "creme", "fromag", "yaourt", "lait"]
+        dairy = ["beurre", "creme", "fromag", "yaourt", "lait", "cheddar", "gouda"]
+        prepared = ["quiche", "pizza", "lasagne", "plat", "soupe", "tarte", "friand"]
         if any(k in n_lower for k in meat):
             days = 3
         elif any(k in n_lower for k in dairy):
             days = 14
+        elif any(k in n_lower for k in prepared):
+            days = 4
         elif "oeuf" in n_lower:
             days = 21
             
@@ -291,7 +294,8 @@ def calculate_predicted_date(name, location):
 def categorize_product(name):
     n = normalize_text(name)
     meat = ["poulet", "steak", "viande", "poisson", "jambon", "lardons", "saucisse", "boeuf", "veau", "porc", "dinde", "merguez"]
-    dairy = ["lait", "beurre", "creme", "fromage", "yaourt", "lben", "faisselle"]
+    dairy = ["lait", "beurre", "creme", "fromage", "yaourt", "lben", "faisselle", "cheddar", "gouda", "mozzarella", "emmental"]
+    prepared = ["quiche", "pizza", "lasagne", "plat", "soupe", "tarte", "friand", "nuggets", "cordon bleu"]
     eggs = ["oeuf", "œufs"]
     fruits_vegs = ["tomate", "salade", "carotte", "courgette", "pomme", "banana", "fruit", "legume", "champignon", "oignon"]
     
@@ -299,6 +303,8 @@ def categorize_product(name):
         return "🥩 Viandes & Poissons"
     elif any(k in n for k in dairy):
         return "🥛 Produits Laitiers"
+    elif any(k in n for k in prepared):
+        return "🍲 Produits préparés"
     elif any(k in n for k in eggs):
         return "🥚 Œufs"
     elif any(k in n for k in fruits_vegs):
@@ -311,7 +317,6 @@ st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Périmés")
 
 prod_catalog, loc_list = get_catalog_lists()
 
-# Calcul préalable du nombre de produits périmés ou proches de pérempter (<= 7 jours)
 all_inv_items = get_all_inventory()
 today_date = datetime.datetime.now().date()
 alert_count = 0
@@ -323,7 +328,6 @@ for it in all_inv_items:
     except:
         pass
 
-# Libellé dynamique de l'onglet avec pastille / compteur
 expiry_tab_label = f"⏳ Périmés sous 7 jours ({alert_count})" if alert_count > 0 else "⏳ Périmés sous 7 jours"
 
 # --- ONGLETS PRINCIPAUX ---
@@ -560,8 +564,8 @@ with st.sidebar:
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
-    category_options = ["🥩 Viandes & Poissons", "🥛 Produits Laitiers", "🥚 Œufs", "🍎 Fruits & Légumes", "📦 Autres"]
-    cat_default_idx = category_options.index(default_cat_suggestion) if default_cat_suggestion in category_options else 4
+    category_options = ["🥩 Viandes & Poissons", "🥛 Produits Laitiers", "🍲 Produits préparés", "🥚 Œufs", "🍎 Fruits & Légumes", "📦 Autres"]
+    cat_default_idx = category_options.index(default_cat_suggestion) if default_cat_suggestion in category_options else 5
     
     selected_category = st.selectbox("Catégorie", options=category_options, index=cat_default_idx, key="inv_cat_input_box")
 
