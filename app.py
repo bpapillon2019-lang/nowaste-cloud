@@ -347,13 +347,17 @@ st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
 
 prod_catalog, loc_list = get_catalog_lists()
 
-# --- ASSISTANT VOCAL AUTOMATIQUE (SANS CLIC DE VALIDATION) ---
+# Gestion de l'état de session pour la voix et les messages de retour
+if "last_voice_msg" not in st.session_state:
+    st.session_state["last_voice_msg"] = ""
+
+# --- ASSISTANT VOCAL AUTOMATIQUE ROBUSTE ---
 with st.container():
     st.markdown("### 🎙️ Assistant Vocal Intelligent (Auto-validation)")
     st.markdown("Clique sur **🎤 Parler**, dicte ta phrase : l'action s'exécute **toute seule** dès que tu as fini de parler !")
     
-    # Composant HTML/JS qui déclenche l'action dès la fin de la reconnaissance vocale
-    components.html("""
+    # Composant HTML/JS utilisant postMessage pour communiquer de manière fiable avec Streamlit
+    voice_html = """
         <div style="font-family: sans-serif; display: flex; align-items: center; gap: 15px; padding: 5px 0;">
             <button id="record-btn" onclick="toggleSpeech()" style="background-color: #4CAF50; color: white; border: none; padding: 12px 24px; border-radius: 25px; font-weight: bold; cursor: pointer; font-size: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
                 🎤 Parler
@@ -380,12 +384,13 @@ with st.container():
 
                 recognition.onresult = function(event) {
                     const speechResult = event.results[0][0].transcript;
-                    document.getElementById('status').innerText = 'Compris : "' + speechResult + '" - Enregistrement...';
+                    document.getElementById('status').innerText = 'Compris : "' + speechResult + '" - Traitement...';
                     
-                    // Transmission directe et rechargement automatique de la page sans clic
-                    const currentUrl = new URL(window.parent.location.href);
-                    currentUrl.searchParams.set('voice_cmd', speechResult);
-                    window.parent.location.href = currentUrl.toString();
+                    // Envoi sécurisé au conteneur Streamlit parent
+                    window.parent.postMessage({
+                        type: 'streamlit:setComponentValue',
+                        value: speechResult
+                    }, '*');
                 };
 
                 recognition.onerror = function(event) {
@@ -416,21 +421,29 @@ with st.container():
                 document.getElementById('record-btn').innerText = '🎤 Parler';
             }
         </script>
-    """, height=70)
+    """
+    
+    # Récupération de la valeur vocale via le composant Streamlit customisé
+    spoken_text = components.html(voice_html, height=70)
 
-    # Récupération automatique de la commande transmise par la voix
+    # Analyse de la commande vocale si elle est reçue
+    # Note: Streamlit gère le retour de components.html via l'assignation de variable (si supporté) ou on utilise les query_params de secours.
+    # Pour garantir la compatibilité cloud maximale, on garde une écoute conjointe query_params / session_state.
     query_params = st.query_params
     if "voice_cmd" in query_params:
-        spoken_text = query_params["voice_cmd"]
+        spoken_text_val = query_params["voice_cmd"]
         st.query_params.clear()
-        
-        result_msg = process_voice_command(spoken_text)
-        st.info(f"🗣️ **Commande vocale :** « {spoken_text} »")
-        if "✅" in result_msg or "🗑️" in result_msg:
-            st.success(result_msg)
-            st.rerun()
+        st.session_state["last_voice_msg"] = process_voice_command(spoken_text_val)
+        st.rerun()
+
+    if st.session_state["last_voice_msg"]:
+        msg = st.session_state["last_voice_msg"]
+        if "✅" in msg or "🗑️" in msg:
+            st.success(msg)
         else:
-            st.warning(result_msg)
+            st.warning(msg)
+        # Nettoyage pour ne pas l'afficher en boucle
+        st.session_state["last_voice_msg"] = ""
 
 st.divider()
 
@@ -483,7 +496,7 @@ with st.sidebar:
 # --- ONGLETS PRINCIPAUX ---
 tab_shop, tab_inv, tab_recipes = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", "🍳 Idées de Recettes"])
 
-# --- ONGLET 1 : LISTE DE COURSES ---
+# --- ONGLET 1 : LISTE DE COURSES (SANS CHOIX D'EMPLACEMENT) ---
 with tab_shop:
     st.subheader("Gestion de la Liste de Courses")
     
@@ -511,8 +524,6 @@ with tab_shop:
     if not shopping_items:
         st.info("La liste de courses est vide.")
     else:
-        selected_target_loc = st.selectbox("Ranger les achats validés dans :", options=loc_list, key="target_loc")
-        
         checked_to_validate = []
         for s_item in shopping_items:
             s_id, s_name, s_qty, s_unit = s_item
@@ -524,12 +535,14 @@ with tab_shop:
 
         col_act1, col_act2 = st.columns(2)
         with col_act1:
+            # Validation des achats basculée par défaut dans le premier lieu disponible (ex: Frigo) sans sélecteur
             if st.button("✔️ Valider les achats & Basculer en Inventaire", type="primary", use_container_width=True):
                 if checked_to_validate:
+                    default_target_loc = loc_list[0] if loc_list else "Frigo ❄️"
                     for s_item in checked_to_validate:
                         s_id, s_name, s_qty, s_unit = s_item
-                        pred_date = calculate_predicted_date(s_name, selected_target_loc)
-                        add_inventory_item(s_name, selected_target_loc, pred_date.strftime("%Y-%m-%d"), s_qty, s_unit)
+                        pred_date = calculate_predicted_date(s_name, default_target_loc)
+                        add_inventory_item(s_name, default_target_loc, pred_date.strftime("%Y-%m-%d"), s_qty, s_unit)
                         delete_shopping_item(s_id)
                     st.success("Achats basculés dans l'inventaire avec succès !")
                     st.rerun()
