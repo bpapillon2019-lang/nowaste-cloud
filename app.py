@@ -114,10 +114,14 @@ def add_inventory_item(name, location, expiry_date, quantity, unit):
         new_id = max([r.get("id", 0) for r in records], default=0) + 1
         sheet.append_row([new_id, name, location, expiry_date, quantity, unit])
     
-    cat_sheet = db.worksheet("catalog")
-    prods = [row.get("product_name") for row in cat_sheet.get_all_records() if row.get("product_name")]
-    if name not in prods:
-        cat_sheet.append_row([name, ""])
+    # Optimisation : Gestion sécurisée et évitant le spam d'API sur le catalogue
+    try:
+        cat_sheet = db.worksheet("catalog")
+        prods = [str(col) for col in cat_sheet.col_values(1) if col]
+        if name not in prods:
+            cat_sheet.append_row([name, ""])
+    except Exception:
+        pass
 
 def update_item_quantity(item_id, new_qty):
     if db is None:
@@ -170,10 +174,13 @@ def add_to_shopping_list(name, quantity, unit):
     new_id = max([r.get("id", 0) for r in records], default=0) + 1
     sheet.append_row([new_id, name, quantity, unit])
     
-    cat_sheet = db.worksheet("catalog")
-    prods = [row.get("product_name") for row in cat_sheet.get_all_records() if row.get("product_name")]
-    if name not in prods:
-        cat_sheet.append_row([name, ""])
+    try:
+        cat_sheet = db.worksheet("catalog")
+        prods = [str(col) for col in cat_sheet.col_values(1) if col]
+        if name not in prods:
+            cat_sheet.append_row([name, ""])
+    except Exception:
+        pass
 
 def delete_shopping_item(item_id):
     if db is None:
@@ -186,16 +193,18 @@ def delete_shopping_item(item_id):
 def get_catalog_lists():
     if db is None:
         return ["Beurre", "Lait"], ["Frigo ❄️", "Placard 📦"]
-    sheet = db.worksheet("catalog")
-    records = sheet.get_all_records()
-    # CORRECTION ICI : Utilisation correcte des accolades pour le set
-    products = list({r.get("product_name") for r in records if r.get("product_name")})
-    locations = list({r.get("location_name") for r in records if r.get("location_name")})
-    products.sort()
-    locations.sort()
-    if not locations:
-        locations = ["Frigo ❄️", "Placard 📦"]
-    return products, locations
+    try:
+        sheet = db.worksheet("catalog")
+        records = sheet.get_all_records()
+        products = list({str(r.get("product_name")) for r in records if r.get("product_name")})
+        locations = list({str(r.get("location_name")) for r in records if r.get("location_name")})
+        products.sort()
+        locations.sort()
+        if not locations:
+            locations = ["Frigo ❄️", "Placard 📦"]
+        return products, locations
+    except Exception:
+        return ["Beurre", "Lait"], ["Frigo ❄️", "Placard 📦"]
 
 def add_location_in_db(new_loc):
     if db is None:
