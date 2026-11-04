@@ -58,8 +58,8 @@ def init_google_sheets():
             sheet_shop.append_row(["id", "name", "quantity", "unit"])
             
         if "catalog" not in sheet_names:
-            sheet_cat = spreadsheet.add_worksheet(title="catalog", rows=100, cols=2)
-            sheet_cat.append_row(["product_name", "location_name"])
+            sheet_cat = spreadsheet.add_worksheet(title="catalog", rows=100, cols=3)
+            sheet_cat.append_row(["product_name", "location_name", "category"])
             default_products = [
                 "Beurre", "Crème fraîche", "Fromage", "Jambon", 
                 "Lait", "Œufs", "Pâtes", "Poulet", "Riz", 
@@ -72,7 +72,7 @@ def init_google_sheets():
             ]
             for p, l in zip(default_products + [""]*(len(default_locations)-len(default_products)), 
                             default_locations + [""]*(len(default_products)-len(default_products))):
-                sheet_cat.append_row([p, l])
+                sheet_cat.append_row([p, l, ""])
                 
         return spreadsheet
     except Exception as e:
@@ -80,6 +80,76 @@ def init_google_sheets():
         return None
 
 db = init_google_sheets()
+
+def get_catalog_categories():
+    """Récupère les catégories pré-enregistrées dans le catalogue si elles existent"""
+    if db is None:
+        return {}
+    try:
+        cat_sheet = db.worksheet("catalog")
+        records = cat_sheet.get_all_records()
+        cat_map = {}
+        for r in records:
+            p_name = str(r.get("product_name", "")).strip().lower()
+            c_name = str(r.get("category", "")).strip()
+            if p_name and c_name:
+                cat_map[p_name] = c_name
+        return cat_map
+    except:
+        return {}
+
+def categorize_product(name):
+    # Vérifie d'abord si le produit a une catégorie enregistrée dans le catalogue
+    catalog_cats = get_catalog_categories()
+    clean_name = str(name).strip().lower()
+    if clean_name in catalog_cats:
+        return catalog_cats[clean_name]
+
+    n = normalize_text(name)
+    meat = ["poulet", "steak", "viande", "poisson", "jambon", "lardons", "saucisse", "boeuf", "veau", "porc", "dinde", "merguez"]
+    dairy = ["lait", "beurre", "creme", "fromage", "yaourt", "lben", "faisselle", "cheddar", "gouda", "mozzarella", "emmental"]
+    prepared = ["quiche", "pizza", "lasagne", "plat", "soupe", "tarte", "friand", "nuggets", "cordon bleu", "brandade"]
+    eggs = ["oeuf", "œufs"]
+    fruits_vegs = ["tomate", "salade", "carotte", "courgette", "pomme", "banana", "fruit", "legume", "champignon", "oignon"]
+    
+    if any(k in n for k in meat):
+        return "🥩 Viandes & Poissons"
+    elif any(k in n for k in dairy):
+        return "🥛 Produits Laitiers"
+    elif any(k in n for k in prepared):
+        return "🍲 Produits préparés"
+    elif any(k in n for k in eggs):
+        return "🥚 Œufs"
+    elif any(k in n for k in fruits_vegs):
+        return "🍎 Fruits & Légumes"
+    else:
+        return "📦 Autres"
+
+def save_product_category_to_catalog(product_name, category):
+    """Sauvegarde ou met à jour la catégorie d'un produit dans le catalogue pour les utilisations futures"""
+    if db is None:
+        return
+    try:
+        cat_sheet = db.worksheet("catalog")
+        records = cat_sheet.get_all_records()
+        
+        # Vérifie si le header possède la colonne category, sinon l'ajoute
+        headers = cat_sheet.row_values(1)
+        if "category" not in [h.lower() for h in headers]:
+            cat_sheet.update_cell(1, 3, "category")
+
+        found_row = None
+        for i, r in enumerate(records, start=2):
+            if str(r.get("product_name", "")).strip().lower() == product_name.strip().lower():
+                found_row = i
+                break
+        
+        if found_row:
+            cat_sheet.update_cell(found_row, 3, category)
+        else:
+            cat_sheet.append_row([product_name, "", category])
+    except Exception as e:
+        st.error(f"Erreur lors de la mise à jour du catalogue : {e}")
 
 def get_all_inventory():
     if db is None:
@@ -90,13 +160,14 @@ def get_all_inventory():
         items = []
         for r in records:
             try:
+                p_name = str(r.get("name", ""))
                 cat = str(r.get("category", ""))
                 if not cat:
-                    cat = categorize_product(str(r.get("name", "")))
+                    cat = categorize_product(p_name)
                 
                 items.append((
                     int(r.get("id", 1)),
-                    str(r.get("name", "")),
+                    p_name,
                     str(r.get("location", "")),
                     str(r.get("expiry_date", "")),
                     float(r.get("quantity", 1)),
@@ -128,16 +199,27 @@ def add_inventory_item(name, location, expiry_date, quantity, unit, category):
                 current_qty = float(existing_row.get("quantity", 0))
                 new_qty = current_qty + quantity
                 sheet.update_cell(cell.row, 5, new_qty)
+                sheet.update_cell(cell.row, 7, category)
         else:
             new_id = max([r.get("id", 0) for r in records], default=0) + 1
             sheet.append_row([new_id, name, location, expiry_date, quantity, unit, category])
         
-        cat_sheet = db.worksheet("catalog")
-        prods = [str(col) for col in cat_sheet.col_values(1) if col]
-        if name not in prods:
-            cat_sheet.append_row([name, ""])
+        save_product_category_to_catalog(name, category)
     except Exception as e:
         st.error(f"Erreur lors de l'ajout à l'inventaire : {e}")
+
+def update_item_category(item_id, product_name, new_category):
+    if db is None:
+        return
+    try:
+        sheet = db.worksheet("inventory")
+        cell = sheet.find(str(item_id))
+        if cell:
+            sheet.update_cell(cell.row, 7, new_category)
+        # Sauvegarde permanente dans le catalogue
+        save_product_category_to_catalog(product_name, new_category)
+    except Exception as e:
+        st.error(f"Erreur de mise à jour de la catégorie : {e}")
 
 def update_item_quantity_and_unit(item_id, new_qty, new_unit):
     if db is None:
@@ -207,7 +289,7 @@ def add_to_shopping_list(name, quantity, unit):
         cat_sheet = db.worksheet("catalog")
         prods = [str(col) for col in cat_sheet.col_values(1) if col]
         if name not in prods:
-            cat_sheet.append_row([name, ""])
+            cat_sheet.append_row([name, "", categorize_product(name)])
     except Exception as e:
         st.error(f"Erreur lors de l'ajout aux courses : {e}")
 
@@ -243,7 +325,7 @@ def add_location_in_db(new_loc):
         return
     try:
         cat_sheet = db.worksheet("catalog")
-        cat_sheet.append_row(["", new_loc])
+        cat_sheet.append_row(["", new_loc, ""])
     except Exception as e:
         st.error(f"Erreur d'ajout de lieu : {e}")
 
@@ -263,7 +345,7 @@ def rename_location_in_db(old_loc, new_loc):
             if cell.col == 2:
                 cat_sheet.update_cell(cell.row, 2, new_loc)
         if not loc_cells:
-            cat_sheet.append_row(["", new_loc])
+            cat_sheet.append_row(["", new_loc, ""])
     except Exception as e:
         st.error(f"Erreur de renommage de lieu : {e}")
 
@@ -290,27 +372,6 @@ def calculate_predicted_date(name, location):
             days = 21
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
-
-def categorize_product(name):
-    n = normalize_text(name)
-    meat = ["poulet", "steak", "viande", "poisson", "jambon", "lardons", "saucisse", "boeuf", "veau", "porc", "dinde", "merguez"]
-    dairy = ["lait", "beurre", "creme", "fromage", "yaourt", "lben", "faisselle", "cheddar", "gouda", "mozzarella", "emmental"]
-    prepared = ["quiche", "pizza", "lasagne", "plat", "soupe", "tarte", "friand", "nuggets", "cordon bleu"]
-    eggs = ["oeuf", "œufs"]
-    fruits_vegs = ["tomate", "salade", "carotte", "courgette", "pomme", "banana", "fruit", "legume", "champignon", "oignon"]
-    
-    if any(k in n for k in meat):
-        return "🥩 Viandes & Poissons"
-    elif any(k in n for k in dairy):
-        return "🥛 Produits Laitiers"
-    elif any(k in n for k in prepared):
-        return "🍲 Produits préparés"
-    elif any(k in n for k in eggs):
-        return "🥚 Œufs"
-    elif any(k in n for k in fruits_vegs):
-        return "🍎 Fruits & Légumes"
-    else:
-        return "📦 Autres"
 
 # --- INTERFACE STREAMLIT ---
 st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Périmés")
@@ -410,8 +471,6 @@ with tab_shop:
                     with c_date:
                         pred_date = calculate_predicted_date(s_name, chosen_loc)
                         chosen_date = st.date_input(f"Date de péremption pour {s_name}", value=pred_date, key=f"val_date_{s_id}")
-                        # Affichage textuel explicite de la date sélectionnée au format français JJ/MM/AAAA
-                        st.caption(fmt := f"Sélectionné : {chosen_date.strftime('%d/%m/%Y')}")
                     
                     batch_expiry_data[s_id] = (s_item, chosen_loc, chosen_date)
                     st.write("---")
@@ -454,6 +513,7 @@ with tab_inv:
         st.info("Aucun produit ne correspond aux critères dans l'inventaire.")
 
     unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
+    category_options = ["🥩 Viandes & Poissons", "🥛 Produits Laitiers", "🍲 Produits préparés", "🥚 Œufs", "🍎 Fruits & Légumes", "📦 Autres"]
 
     for item in filtered_items:
         item_id, name, location, expiry_date, quantity, unit, category = item
@@ -471,22 +531,30 @@ with tab_inv:
             pass
 
         with st.container(border=True):
-            col1, col2, col3, col4, col5 = st.columns([2.5, 2, 1.5, 1.5, 1])
+            col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1.8, 1, 1, 0.8])
             
             with col1:
                 st.markdown(f"**{name}**")
-                st.caption(f"{category}  •  Expire le : {expiry_fr}  •  [{status_text}]")
+                st.caption(f"Expire le : {expiry_fr}  •  [{status_text}]")
                 
             with col2:
+                # Modification de la catégorie directement modifiable
+                cat_idx = category_options.index(category) if category in category_options else 5
+                new_cat_choice = st.selectbox("Catégorie", options=category_options, index=cat_idx, key=f"cat_sel_{item_id}", label_visibility="collapsed")
+                if new_cat_choice != category:
+                    update_item_category(item_id, name, new_cat_choice)
+                    st.rerun()
+
+            with col3:
                 new_location_choice = st.selectbox("Lieu", options=loc_list, index=loc_list.index(location) if location in loc_list else 0, key=f"loc_sel_{item_id}", label_visibility="collapsed")
                 if new_location_choice != location:
                     new_exp = calculate_predicted_date(name, new_location_choice).strftime("%Y-%m-%d")
                     update_item_location(item_id, new_location_choice, new_exp)
                     st.rerun()
                 
-            with col3:
-                new_qty = st.number_input("Qté", min_value=0.0, value=float(quantity), step=1.0, key=f"qty_input_{item_id}", label_visibility="collapsed")
             with col4:
+                new_qty = st.number_input("Qté", min_value=0.0, value=float(quantity), step=1.0, key=f"qty_input_{item_id}", label_visibility="collapsed")
+            with col5:
                 current_unit_idx = unit_options.index(unit) if unit in unit_options else 0
                 new_unit = st.selectbox("Unité", options=unit_options, index=current_unit_idx, key=f"unit_sel_{item_id}", label_visibility="collapsed")
 
@@ -497,7 +565,7 @@ with tab_inv:
                     update_item_quantity_and_unit(item_id, new_qty, new_unit)
                 st.rerun()
 
-            with col5:
+            with col6:
                 if st.button("❌", key=f"del_{item_id}"):
                     delete_inventory_item(item_id)
                     st.rerun()
