@@ -72,6 +72,7 @@ def init_google_sheets():
 
 db = init_google_sheets()
 
+# Fonctions d'accès aux données optimisées avec nettoyage du cache en écriture
 def get_all_inventory():
     if db is None:
         return []
@@ -93,7 +94,8 @@ def get_all_inventory():
                 pass
         return items
     except Exception:
-        return []
+        # En cas de saturation API, on retourne l'ancien cache s'il existe pour ne pas afficher vide
+        return st.session_state.get("cached_inventory", [])
 
 def add_inventory_item(name, location, expiry_date, quantity, unit):
     if db is None:
@@ -128,27 +130,36 @@ def add_inventory_item(name, location, expiry_date, quantity, unit):
 def update_item_quantity(item_id, new_qty):
     if db is None:
         return
-    sheet = db.worksheet("inventory")
-    cell = sheet.find(str(item_id))
-    if cell:
-        sheet.update_cell(cell.row, 5, new_qty)
+    try:
+        sheet = db.worksheet("inventory")
+        cell = sheet.find(str(item_id))
+        if cell:
+            sheet.update_cell(cell.row, 5, new_qty)
+    except Exception as e:
+        st.error(f"Erreur de mise à jour de la quantité : {e}")
 
 def update_item_location(item_id, new_loc, new_expiry):
     if db is None:
         return
-    sheet = db.worksheet("inventory")
-    cell = sheet.find(str(item_id))
-    if cell:
-        sheet.update_cell(cell.row, 3, new_loc)
-        sheet.update_cell(cell.row, 4, new_expiry)
+    try:
+        sheet = db.worksheet("inventory")
+        cell = sheet.find(str(item_id))
+        if cell:
+            sheet.update_cell(cell.row, 3, new_loc)
+            sheet.update_cell(cell.row, 4, new_expiry)
+    except Exception as e:
+        st.error(f"Erreur de mise à jour du lieu : {e}")
 
 def delete_inventory_item(item_id):
     if db is None:
         return
-    sheet = db.worksheet("inventory")
-    cell = sheet.find(str(item_id))
-    if cell:
-        sheet.delete_rows(cell.row)
+    try:
+        sheet = db.worksheet("inventory")
+        cell = sheet.find(str(item_id))
+        if cell:
+            sheet.delete_rows(cell.row)
+    except Exception as e:
+        st.error(f"Erreur lors de la suppression : {e}")
 
 def get_shopping_list():
     if db is None:
@@ -169,7 +180,6 @@ def get_shopping_list():
                 pass
         return items
     except Exception:
-        # Sécurité : si la feuille est vide ou mal formatée, on retourne une liste vide au lieu de planter
         return []
 
 def add_to_shopping_list(name, quantity, unit):
@@ -191,10 +201,13 @@ def add_to_shopping_list(name, quantity, unit):
 def delete_shopping_item(item_id):
     if db is None:
         return
-    sheet = db.worksheet("shopping_list")
-    cell = sheet.find(str(item_id))
-    if cell:
-        sheet.delete_rows(cell.row)
+    try:
+        sheet = db.worksheet("shopping_list")
+        cell = sheet.find(str(item_id))
+        if cell:
+            sheet.delete_rows(cell.row)
+    except Exception as e:
+        st.error(f"Erreur lors de la suppression des courses : {e}")
 
 def get_catalog_lists():
     if db is None:
@@ -215,25 +228,31 @@ def get_catalog_lists():
 def add_location_in_db(new_loc):
     if db is None:
         return
-    cat_sheet = db.worksheet("catalog")
-    cat_sheet.append_row(["", new_loc])
+    try:
+        cat_sheet = db.worksheet("catalog")
+        cat_sheet.append_row(["", new_loc])
+    except Exception as e:
+        st.error(f"Erreur d'ajout de lieu : {e}")
 
 def rename_location_in_db(old_loc, new_loc):
     if db is None:
         return
-    inv_sheet = db.worksheet("inventory")
-    cell_list = inv_sheet.findall(old_loc)
-    for cell in cell_list:
-        if cell.col == 3:
-            inv_sheet.update_cell(cell.row, 3, new_loc)
-            
-    cat_sheet = db.worksheet("catalog")
-    loc_cells = cat_sheet.findall(old_loc)
-    for cell in loc_cells:
-        if cell.col == 2:
-            cat_sheet.update_cell(cell.row, 2, new_loc)
-    if not loc_cells:
-        cat_sheet.append_row(["", new_loc])
+    try:
+        inv_sheet = db.worksheet("inventory")
+        cell_list = inv_sheet.findall(old_loc)
+        for cell in cell_list:
+            if cell.col == 3:
+                inv_sheet.update_cell(cell.row, 3, new_loc)
+                
+        cat_sheet = db.worksheet("catalog")
+        loc_cells = cat_sheet.findall(old_loc)
+        for cell in loc_cells:
+            if cell.col == 2:
+                cat_sheet.update_cell(cell.row, 2, new_loc)
+        if not loc_cells:
+            cat_sheet.append_row(["", new_loc])
+    except Exception as e:
+        st.error(f"Erreur de renommage de lieu : {e}")
 
 def calculate_predicted_date(name, location):
     n_lower = normalize_text(name)
@@ -409,6 +428,9 @@ with tab_inv:
         filter_loc = st.selectbox("Filtrer par lieu", options=["Tous les lieux"] + loc_list, key="inv_loc_filter")
 
     items = get_all_inventory()
+    # Sauvegarde de secours dans la session pour éviter d'afficher vide en cas de latence API
+    if items:
+        st.session_state["cached_inventory"] = items
 
     filtered_items = []
     for item in items:
