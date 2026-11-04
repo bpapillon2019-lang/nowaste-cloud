@@ -75,53 +75,55 @@ db = init_google_sheets()
 def get_all_inventory():
     if db is None:
         return []
-    sheet = db.worksheet("inventory")
-    records = sheet.get_all_records()
-    items = []
-    for r in records:
-        try:
-            items.append((
-                int(r.get("id", 1)),
-                str(r.get("name", "")),
-                str(r.get("location", "")),
-                str(r.get("expiry_date", "")),
-                float(r.get("quantity", 1)),
-                str(r.get("unit", "unité(s)"))
-            ))
-        except:
-            pass
-    return items
+    try:
+        sheet = db.worksheet("inventory")
+        records = sheet.get_all_records()
+        items = []
+        for r in records:
+            try:
+                items.append((
+                    int(r.get("id", 1)),
+                    str(r.get("name", "")),
+                    str(r.get("location", "")),
+                    str(r.get("expiry_date", "")),
+                    float(r.get("quantity", 1)),
+                    str(r.get("unit", "unité(s)"))
+                ))
+            except:
+                pass
+        return items
+    except Exception:
+        return []
 
 def add_inventory_item(name, location, expiry_date, quantity, unit):
     if db is None:
         return
-    sheet = db.worksheet("inventory")
-    records = sheet.get_all_records()
-    
-    existing_row = None
-    for r in records:
-        if str(r.get("name", "")).strip().lower() == name.strip().lower() and str(r.get("unit", "")) == unit:
-            existing_row = r
-            break
-
-    if existing_row:
-        cell = sheet.find(str(existing_row["id"]))
-        if cell:
-            current_qty = float(existing_row.get("quantity", 0))
-            new_qty = current_qty + quantity
-            sheet.update_cell(cell.row, 5, new_qty)
-    else:
-        new_id = max([r.get("id", 0) for r in records], default=0) + 1
-        sheet.append_row([new_id, name, location, expiry_date, quantity, unit])
-    
-    # Optimisation : Gestion sécurisée et évitant le spam d'API sur le catalogue
     try:
+        sheet = db.worksheet("inventory")
+        records = sheet.get_all_records()
+        
+        existing_row = None
+        for r in records:
+            if str(r.get("name", "")).strip().lower() == name.strip().lower() and str(r.get("unit", "")) == unit:
+                existing_row = r
+                break
+
+        if existing_row:
+            cell = sheet.find(str(existing_row["id"]))
+            if cell:
+                current_qty = float(existing_row.get("quantity", 0))
+                new_qty = current_qty + quantity
+                sheet.update_cell(cell.row, 5, new_qty)
+        else:
+            new_id = max([r.get("id", 0) for r in records], default=0) + 1
+            sheet.append_row([new_id, name, location, expiry_date, quantity, unit])
+        
         cat_sheet = db.worksheet("catalog")
         prods = [str(col) for col in cat_sheet.col_values(1) if col]
         if name not in prods:
             cat_sheet.append_row([name, ""])
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Erreur lors de l'ajout à l'inventaire : {e}")
 
 def update_item_quantity(item_id, new_qty):
     if db is None:
@@ -151,36 +153,40 @@ def delete_inventory_item(item_id):
 def get_shopping_list():
     if db is None:
         return []
-    sheet = db.worksheet("shopping_list")
-    records = sheet.get_all_records()
-    items = []
-    for r in records:
-        try:
-            items.append((
-                int(r.get("id", 1)),
-                str(r.get("name", "")),
-                float(r.get("quantity", 1)),
-                str(r.get("unit", "unité(s)"))
-            ))
-        except:
-            pass
-    return items
+    try:
+        sheet = db.worksheet("shopping_list")
+        records = sheet.get_all_records()
+        items = []
+        for r in records:
+            try:
+                items.append((
+                    int(r.get("id", 1)),
+                    str(r.get("name", "")),
+                    float(r.get("quantity", 1)),
+                    str(r.get("unit", "unité(s)"))
+                ))
+            except:
+                pass
+        return items
+    except Exception:
+        # Sécurité : si la feuille est vide ou mal formatée, on retourne une liste vide au lieu de planter
+        return []
 
 def add_to_shopping_list(name, quantity, unit):
     if db is None:
         return
-    sheet = db.worksheet("shopping_list")
-    records = sheet.get_all_records()
-    new_id = max([r.get("id", 0) for r in records], default=0) + 1
-    sheet.append_row([new_id, name, quantity, unit])
-    
     try:
+        sheet = db.worksheet("shopping_list")
+        records = sheet.get_all_records()
+        new_id = max([r.get("id", 0) for r in records], default=0) + 1
+        sheet.append_row([new_id, name, quantity, unit])
+        
         cat_sheet = db.worksheet("catalog")
         prods = [str(col) for col in cat_sheet.col_values(1) if col]
         if name not in prods:
             cat_sheet.append_row([name, ""])
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Erreur lors de l'ajout aux courses : {e}")
 
 def delete_shopping_item(item_id):
     if db is None:
