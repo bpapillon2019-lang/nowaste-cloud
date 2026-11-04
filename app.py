@@ -188,8 +188,9 @@ def get_catalog_lists():
         return ["Beurre", "Lait"], ["Frigo ❄️", "Placard 📦"]
     sheet = db.worksheet("catalog")
     records = sheet.get_all_records()
-    products = list(set([r.get("product_name"] for r in records if r.get("product_name")]))
-    locations = list(set([r.get("location_name") for r in records if r.get("location_name")]))
+    # CORRECTION ICI : Utilisation correcte des accolades pour le set
+    products = list({r.get("product_name") for r in records if r.get("product_name")})
+    locations = list({r.get("location_name") for r in records if r.get("location_name")})
     products.sort()
     locations.sort()
     if not locations:
@@ -382,7 +383,6 @@ with tab_shop:
                 else:
                     st.warning("Aucun article sélectionné.")
 
-
 # --- ONGLET 2 : INVENTAIRE ---
 with tab_inv:
     st.subheader("Mon Inventaire")
@@ -481,7 +481,6 @@ with tab_inv:
                     delete_inventory_item(item_id)
                     st.rerun()
 
-
 # --- ONGLET 3 : RECETTES WEB INTELLIGENTES ---
 with tab_recipes:
     st.subheader("🍳 Inspirations & Recettes Anti-Gaspi")
@@ -555,7 +554,6 @@ with tab_recipes:
                         
                     st.markdown(f"🛒 **À acheter en plus (viande, légumes, frais) :** {', '.join(recipe['extras'])}")
                     st.write(recipe["desc"])
-
 
 # --- BARRE LATÉRALE : FORMULAIRE D'INVENTAIRE & LIEUX ---
 with st.sidebar:
