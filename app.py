@@ -523,50 +523,55 @@ with tab_inv:
         except:
             pass
 
-        # Style conditionnel : si le produit périme dans les 3 jours ou est périmé, on l'entoure d'un cadre rouge
-        container_border_style = "border: 2px solid #ff4b4b; border-radius: 8px; padding: 10px; margin-bottom: 10px;" if is_urgent else "border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 10px;"
-
-        with st.container():
-            st.markdown(f'<div style="{container_border_style}">', unsafe_allow_html=True)
-            col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1.8, 1, 1, 0.8])
+        # Cadre rouge HTML direct pour forcer l'entourage visuel
+        border_color = "#ff4b4b" if is_urgent else "#ddd"
+        border_width = "2px" if is_urgent else "1px"
+        
+        st.markdown(
+            f'<div style="border: {border_width} solid {border_color}; border-radius: 8px; padding: 10px; margin-bottom: 10px; background-color: rgba(255, 75, 75, 0.03) if {is_urgent} else inherit;">', 
+            unsafe_allow_html=True
+        )
+        
+        col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1.8, 1, 1, 0.8])
+        
+        with col1:
+            st.markdown(f"**{name}**")
+            st.caption(f"Expire le : {expiry_fr}  •  [{status_text}]")
             
-            with col1:
-                st.markdown(f"**{name}**")
-                st.caption(f"Expire le : {expiry_fr}  •  [{status_text}]")
-                
-            with col2:
-                cat_idx = category_options.index(category) if category in category_options else 5
-                new_cat_choice = st.selectbox("Catégorie", options=category_options, index=cat_idx, key=f"cat_sel_{item_id}", label_visibility="collapsed")
-                if new_cat_choice != category:
-                    update_item_category(item_id, name, new_cat_choice)
-                    st.success(f"Catégorie mise à jour pour {name} !")
-                    st.rerun()
-
-            with col3:
-                new_location_choice = st.selectbox("Lieu", options=loc_list, index=loc_list.index(location) if location in loc_list else 0, key=f"loc_sel_{item_id}", label_visibility="collapsed")
-                if new_location_choice != location:
-                    new_exp = calculate_predicted_date(name, new_location_choice).strftime("%Y-%m-%d")
-                    update_item_location(item_id, new_location_choice, new_exp)
-                    st.rerun()
-                
-            with col4:
-                new_qty = st.number_input("Qté", min_value=0.0, value=float(quantity), step=1.0, key=f"qty_input_{item_id}", label_visibility="collapsed")
-            with col5:
-                current_unit_idx = unit_options.index(unit) if unit in unit_options else 0
-                new_unit = st.selectbox("Unité", options=unit_options, index=current_unit_idx, key=f"unit_sel_{item_id}", label_visibility="collapsed")
-
-            if new_qty != quantity or new_unit != unit:
-                if new_qty <= 0:
-                    delete_inventory_item(item_id)
-                else:
-                    update_item_quantity_and_unit(item_id, new_qty, new_unit)
+        with col2:
+            cat_idx = category_options.index(category) if category in category_options else 5
+            new_cat_choice = st.selectbox("Catégorie", options=category_options, index=cat_idx, key=f"cat_sel_{item_id}", label_visibility="collapsed")
+            if new_cat_choice != category:
+                update_item_category(item_id, name, new_cat_choice)
+                st.success(f"Catégorie mise à jour pour {name} !")
                 st.rerun()
 
-            with col6:
-                if st.button("❌", key=f"del_{item_id}"):
-                    delete_inventory_item(item_id)
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        with col3:
+            new_location_choice = st.selectbox("Lieu", options=loc_list, index=loc_list.index(location) if location in loc_list else 0, key=f"loc_sel_{item_id}", label_visibility="collapsed")
+            if new_location_choice != location:
+                new_exp = calculate_predicted_date(name, new_location_choice).strftime("%Y-%m-%d")
+                update_item_location(item_id, new_location_choice, new_exp)
+                st.rerun()
+            
+        with col4:
+            new_qty = st.number_input("Qté", min_value=0.0, value=float(quantity), step=1.0, key=f"qty_input_{item_id}", label_visibility="collapsed")
+        with col5:
+            current_unit_idx = unit_options.index(unit) if unit in unit_options else 0
+            new_unit = st.selectbox("Unité", options=unit_options, index=current_unit_idx, key=f"unit_sel_{item_id}", label_visibility="collapsed")
+
+        if new_qty != quantity or new_unit != unit:
+            if new_qty <= 0:
+                delete_inventory_item(item_id)
+            else:
+                update_item_quantity_and_unit(item_id, new_qty, new_unit)
+            st.rerun()
+
+        with col6:
+            if st.button("❌", key=f"del_{item_id}"):
+                delete_inventory_item(item_id)
+                st.rerun()
+                
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS ---
 with tab_expiry:
@@ -610,10 +615,10 @@ with tab_expiry:
                 else:
                     badge = f"🟠 **Expire dans {delta} jour(s)** (le {expiry_fr})"
                 
-                # Cadre rouge si delta <= 3
-                box_style = "border: 2px solid #ff4b4b; border-radius: 8px; padding: 10px; margin-bottom: 10px;" if delta <= 3 else "border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 10px;"
+                box_color = "#ff4b4b" if delta <= 3 else "#ddd"
+                box_width = "2px" if delta <= 3 else "1px"
 
-                st.markdown(f'<div style="{box_style}">', unsafe_allow_html=True)
+                st.markdown(f'<div style="border: {box_width} solid {box_color}; border-radius: 8px; padding: 10px; margin-bottom: 10px;">', unsafe_allow_html=True)
                 c1, c2 = st.columns([3, 1])
                 with c1:
                     st.markdown(f"**{name}** — {quantity} {unit}")
@@ -632,7 +637,7 @@ with st.sidebar:
     st.header("➕ Ajouter à l'inventaire")
     
     selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel_box")
-    custom_name = st.text_input("Ou saisir le nom", key="inv_custom_input_box")
+    custom_name = st.text_input("Nom du produit", key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
