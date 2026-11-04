@@ -51,7 +51,7 @@ def init_google_sheets():
         
         if "inventory" not in sheet_names:
             sheet_inv = spreadsheet.add_worksheet(title="inventory", rows=100, cols=10)
-            sheet_inv.append_row(["id", "name", "location", "expiry_date", "quantity", "unit"])
+            sheet_inv.append_row(["id", "name", "location", "expiry_date", "quantity", "unit", "category"])
         
         if "shopping_list" not in sheet_names:
             sheet_shop = spreadsheet.add_worksheet(title="shopping_list", rows=100, cols=5)
@@ -90,13 +90,19 @@ def get_all_inventory():
         items = []
         for r in records:
             try:
+                # Gestion de la rétrocompatibilité si la colonne 'category' n'existe pas encore dans le sheet
+                cat = str(r.get("category", ""))
+                if not cat:
+                    cat = categorize_product(str(r.get("name", "")))
+                
                 items.append((
                     int(r.get("id", 1)),
                     str(r.get("name", "")),
                     str(r.get("location", "")),
                     str(r.get("expiry_date", "")),
                     float(r.get("quantity", 1)),
-                    str(r.get("unit", "unité(s)"))
+                    str(r.get("unit", "unité(s)")),
+                    cat
                 ))
             except:
                 pass
@@ -104,7 +110,7 @@ def get_all_inventory():
     except Exception:
         return st.session_state.get("cached_inventory", [])
 
-def add_inventory_item(name, location, expiry_date, quantity, unit):
+def add_inventory_item(name, location, expiry_date, quantity, unit, category):
     if db is None:
         return
     try:
@@ -125,7 +131,8 @@ def add_inventory_item(name, location, expiry_date, quantity, unit):
                 sheet.update_cell(cell.row, 5, new_qty)
         else:
             new_id = max([r.get("id", 0) for r in records], default=0) + 1
-            sheet.append_row([new_id, name, location, expiry_date, quantity, unit])
+            # S'assure que la feuille a la colonne category si besoin, sinon append avec les 7 colonnes
+            sheet.append_row([new_id, name, location, expiry_date, quantity, unit, category])
         
         cat_sheet = db.worksheet("catalog")
         prods = [str(col) for col in cat_sheet.col_values(1) if col]
@@ -394,7 +401,8 @@ with tab_shop:
                 if submitted_batch:
                     for s_id, (s_item, loc, exp_date) in batch_expiry_data.items():
                         _, s_name, s_qty, s_unit = s_item
-                        add_inventory_item(s_name, loc, exp_date.strftime("%Y-%m-%d"), s_qty, s_unit)
+                        auto_cat = categorize_product(s_name)
+                        add_inventory_item(s_name, loc, exp_date.strftime("%Y-%m-%d"), s_qty, s_unit, auto_cat)
                         delete_shopping_item(s_id)
                     
                     st.session_state["validating_shop_items"] = []
@@ -414,7 +422,7 @@ with tab_inv:
 
     filtered_items = []
     for item in items:
-        item_id, name, location, expiry_date, quantity, unit = item
+        item_id, name, location, expiry_date, quantity, unit, category = item
         if search_query and normalize_text(search_query) not in normalize_text(name):
             continue
         if filter_loc != "Tous les lieux" and location != filter_loc:
@@ -447,7 +455,7 @@ with tab_inv:
     unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
 
     for item in filtered_items:
-        item_id, name, location, expiry_date, quantity, unit = item
+        item_id, name, location, expiry_date, quantity, unit, category = item
 
         expiry_fr = format_date_fr(expiry_date)
         status_text = "En cours"
@@ -466,7 +474,7 @@ with tab_inv:
             
             with col1:
                 st.markdown(f"**{name}**")
-                st.caption(f"Expire le : {expiry_fr}  •  [{status_text}]")
+                st.caption(f"{category}  •  Expire le : {expiry_fr}  •  [{status_text}]")
                 
             with col2:
                 new_location_choice = st.selectbox("Lieu", options=loc_list, index=loc_list.index(location) if location in loc_list else 0, key=f"loc_sel_{item_id}", label_visibility="collapsed")
@@ -493,7 +501,7 @@ with tab_inv:
                     delete_inventory_item(item_id)
                     st.rerun()
 
-# --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS (AVEC DÉBOGAGE) ---
+# --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS ---
 with tab_expiry:
     st.subheader("⏳ Produits périmés ou à consommer dans les 7 jours")
     
@@ -503,33 +511,22 @@ with tab_expiry:
     upcoming_expiry_items = []
     
     for item in items:
-        item_id, name, location, expiry_date, quantity, unit = item
+        item_id, name, location, expiry_date, quantity, unit, category = item
         try:
-            # Nettoyage de la date pour éviter les erreurs de format
             clean_date = str(expiry_date).strip()
             exp_obj = datetime.datetime.strptime(clean_date, "%Y-%m-%d").date()
             delta = (exp_obj - today).days
-            
-            # Condition élargie pour inclure tous les produits dont la date est passée ou dans les 7 jours
             if delta <= 7:
                 upcoming_expiry_items.append((item, delta))
-        except Exception as e:
-            # Si une date est mal formatée dans le Google Sheet, on l'affiche dans les logs de debug
+        except:
             pass
 
     if not upcoming_expiry_items:
         st.success("🎉 Aucun produit ne péremptera dans les 7 prochains jours !")
-        
-        # --- PANNEAU DE DÉBOGAGE VISUEL ---
-        with st.expander("🛠️ Voir le diagnostic des dates (Mode Debug)"):
-            st.write(f"Date du jour système : **{today}**")
-            st.write(f"Nombre total d'articles dans l'inventaire : {len(items)}")
-            for item in items:
-                st.write(f"- Produit : **{item[1]}** | Date brute lue : `{item[3]}`")
     else:
         categorized_dict = {}
         for item, delta in upcoming_expiry_items:
-            cat = categorize_product(item[1])
+            cat = item[6] if len(item) > 6 and item[6] else categorize_product(item[1])
             if cat not in categorized_dict:
                 categorized_dict[cat] = []
             categorized_dict[cat].append((item, delta))
@@ -537,7 +534,7 @@ with tab_expiry:
         for cat in sorted(categorized_dict.keys()):
             st.markdown(f"### {cat}")
             for item, delta in categorized_dict[cat]:
-                item_id, name, location, expiry_date, quantity, unit = item
+                item_id, name, location, expiry_date, quantity, unit, category = item
                 if quantity.is_integer():
                     quantity = int(quantity)
                 
@@ -570,6 +567,13 @@ with st.sidebar:
     custom_name = st.text_input("Nom du produit", key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
+    # Ajout du champ Catégorie pré-rempli intelligemment si le produit est reconnu
+    default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
+    category_options = ["🥩 Viandes & Poissons", "🥛 Produits Laitiers", "🥚 Œufs", "🍎 Fruits & Légumes", "📦 Autres"]
+    cat_default_idx = category_options.index(default_cat_suggestion) if default_cat_suggestion in category_options else 4
+    
+    selected_category = st.selectbox("Catégorie", options=category_options, index=cat_default_idx, key="inv_cat_input_box")
+
     selected_loc = st.selectbox("Emplacement", options=loc_list, key="inv_loc_input_box")
 
     col_q1, col_q2 = st.columns([1, 2])
@@ -584,7 +588,7 @@ with st.sidebar:
 
     if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
         if final_name:
-            add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input)
+            add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input, selected_category)
             st.success(f"Ajouté : {final_name}")
             st.rerun()
         else:
