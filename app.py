@@ -8,7 +8,7 @@ import datetime
 
 # Configuration de la page
 st.set_page_config(
-    page_title="NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes",
+    page_title="NoWaste Cloud - Gestion d'Inventaire, Courses & Périmés",
     page_icon="🍏",
     layout="wide"
 )
@@ -272,13 +272,31 @@ def calculate_predicted_date(name, location):
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
+def categorize_product(name):
+    n = normalize_text(name)
+    meat = ["poulet", "steak", "viande", "poisson", "jambon", "lardons", "saucisse", "boeuf", "veau", "porc", "dinde"]
+    dairy = ["lait", "beurre", "creme", "fromage", "yaourt", "lben", "faisselle"]
+    eggs = ["oeuf", "œufs"]
+    fruits_vegs = ["tomate", "salade", "carotte", "courgette", "pomme", "banana", "fruit", "legume", "champignon", "oignon"]
+    
+    if any(k in n for k in meat):
+        return "🥩 Viandes & Poissons"
+    elif any(k in n for k in dairy):
+        return "🥛 Produits Laitiers"
+    elif any(k in n for k in eggs):
+        return "🥚 Œufs"
+    elif any(k in n for k in fruits_vegs):
+        return "🍎 Fruits & Légumes"
+    else:
+        return "📦 Autres"
+
 # --- INTERFACE STREAMLIT ---
-st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
+st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Périmés")
 
 prod_catalog, loc_list = get_catalog_lists()
 
 # --- ONGLETS PRINCIPAUX ---
-tab_shop, tab_inv, tab_recipes = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", "🍳 Idées de Recettes"])
+tab_shop, tab_inv, tab_expiry = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", "⏳ Périmés sous 7 jours"])
 
 # --- ONGLET 1 : LISTE DE COURSES ---
 with tab_shop:
@@ -352,7 +370,6 @@ with tab_inv:
     if items:
         st.session_state["cached_inventory"] = items
 
-    # Récupération des filtres situés dans la barre latérale
     search_query = st.session_state.get("sidebar_search", "")
     filter_loc = st.session_state.get("sidebar_loc_filter", "Tous les lieux")
 
@@ -442,79 +459,58 @@ with tab_inv:
                     delete_inventory_item(item_id)
                     st.rerun()
 
-# --- ONGLET 3 : RECETTES WEB INTELLIGENTES ---
-with tab_recipes:
-    st.subheader("🍳 Inspirations & Recettes Anti-Gaspi")
+# --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS ---
+with tab_expiry:
+    st.subheader("⏳ Produits périmés ou à consommer dans les 7 jours")
     
-    if st.button("🔄 Actualiser les idées"):
-        st.rerun()
-
     items = get_all_inventory()
-    if not items:
-        st.info("Votre inventaire est vide. Ajoutez des produits pour découvrir des suggestions de recettes !")
+    today = datetime.datetime.now().date()
+    
+    upcoming_expiry_items = []
+    for item in items:
+        item_id, name, location, expiry_date, quantity, unit = item
+        try:
+            exp_obj = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            delta = (exp_obj - today).days
+            # On filtre pour ceux périmés (delta < 0) ou périmant dans les 7 jours (0 <= delta <= 7)
+            if delta <= 7:
+                upcoming_expiry_items.append((item, delta))
+        except:
+            pass
+
+    if not upcoming_expiry_items:
+        st.success("🎉 Aucun produit ne péremptera dans les 7 prochains jours !")
     else:
-        inventory_items = [row[1].lower() for row in items]
-        
-        web_recipes_database = [
-            {
-                "title": "quiche lorraine maison ou tarte salée",
-                "core": ["œufs", "lait", "crème fraîche"],
-                "extras": ["Pâte brisée", "Lardons fumés ou dés de jambon", "Gruyère râpé"],
-                "desc": "Une grande classique inspirée du web. Utilisez vos œufs et votre crème, et prévoyez d'acheter une pâte brisée et des lardons pour compléter."
-            },
-            {
-                "title": "gratin de pâtes ou de riz crémeux au four",
-                "core": ["pâtes", "riz", "crème fraîche", "fromage"],
-                "extras": ["1 oignon", "500g de steak haché ou morceaux de poulet", "Légumes de saison (courgettes ou brocolis)"],
-                "desc": "Idéal pour écouler vos féculents et votre crème. Achetez un peu de viande hachée ou de poulet ainsi qu'un légume vert pour un plat complet."
-            },
-            {
-                "title": "poulet rôti ou poêlé aux herbes et pâtes/riz",
-                "core": ["poulet", "beurre", "pâtes", "riz"],
-                "extras": ["1 belle volaille ou filets de poulet", "Ail, échalotes", "Salade verte ou haricots verts"],
-                "desc": "Faites dorer votre poulet au beurre et servez-le avec vos réserves de pâtes ou de riz. Pensez à acheter des légumes frais pour l'accompagnement."
-            },
-            {
-                "title": "omelette du chef aux fines herbes et fromage",
-                "core": ["œufs", "beurre", "fromage"],
-                "extras": ["Champignons de Paris frais", "Persil ou ciboulette", "Salade en sachet"],
-                "desc": "Parfait pour un repas express du soir. Ajoutez des champignons frais et une salade croquante à votre liste de courses."
-            },
-            {
-                "title": "steaks hachés poêlés et risotto/pâtes express",
-                "core": ["steak haché", "beurre"],
-                "extras": ["Steaks frais de chez le boucher", "Tomates fraîches ou purée de tomates", "Oignons"],
-                "desc": "Faites saisir vos steaks et préparez une belle sauce maison. Complétez avec des tomates fraîches et des oignons."
-            },
-            {
-                "title": "crêpes gourmandes salées ou sucrées",
-                "core": ["œufs", "lait", "beurre"],
-                "extras": ["Farine de blé", "Jambon blanc", "Fromage râpé ou chocolat à tartiner"],
-                "desc": "Une recette incontournable pour régaler toute la famille en vidant le frigo de son lait et de ses œufs."
-            }
-        ]
+        # Regroupement par type / catégorie
+        categorized_dict = {}
+        for item, delta in upcoming_expiry_items:
+            cat = categorize_product(item[1])
+            if cat not in categorized_dict:
+                categorized_dict[cat] = []
+            categorized_dict[cat].append((item, delta))
 
-        matched_recipes = []
-        for recipe in web_recipes_database:
-            match_score = sum(1 for core_item in recipe["core"] if any(core_item in inv for inv in inventory_items))
-            if match_score > 0:
-                matched_recipes.append((recipe, match_score))
-
-        matched_recipes.sort(key=lambda x: x[1], reverse=True)
-
-        if not matched_recipes:
-            st.info("Aucune recette web ne correspond précisément à vos ingrédients actuels pour l'instant.")
-        else:
-            for recipe, score in matched_recipes:
+        # Affichage trié par catégorie
+        for cat in sorted(categorized_dict.keys()):
+            st.markdown(f"### {cat}")
+            for item, delta in categorized_dict[cat]:
+                item_id, name, location, expiry_date, quantity, unit = item
+                if quantity.is_integer():
+                    quantity = int(quantity)
+                
+                if delta < 0:
+                    badge = f"🔴 **Périmé depuis {abs(delta)} jour(s)**"
+                elif delta == 0:
+                    badge = "⚠️ **Périme aujourd'hui !**"
+                else:
+                    badge = f"🟠 **Expire dans {delta} jour(s)** (le {expiry_date})"
+                
                 with st.container(border=True):
-                    st.markdown(f"### 🍲 {recipe['title'].capitalize()}")
-                    
-                    present_core = [c for c in recipe["core"] if any(c in inv for inv in inventory_items)]
-                    if present_core:
-                        st.markdown(f"✔️ **Dans votre inventaire :** {', '.join(present_core)}")
-                        
-                    st.markdown(f"🛒 **À acheter en plus (viande, légumes, frais) :** {', '.join(recipe['extras'])}")
-                    st.write(recipe["desc"])
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        st.markdown(f"**{name}** — {quantity} {unit}")
+                        st.caption(f"Emplacement : {location}")
+                    with c2:
+                        st.markdown(badge)
 
 # --- BARRE LATÉRALE : FILTRES, FORMULAIRE & GESTION DES LIEUX ---
 with st.sidebar:
