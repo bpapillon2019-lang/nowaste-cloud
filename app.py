@@ -240,12 +240,11 @@ def calculate_predicted_date(name, location):
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
-# --- ANALYSEUR VOCAL POUR PRÉ-REMPLIR LE FORMULAIRE ---
+# --- ANALYSEUR VOCAL POUR LE FORMULAIRE ---
 def parse_voice_to_form(command_text):
     original_text = command_text.strip()
     text = normalize_text(original_text)
     
-    # Extraction de la quantité
     qty = 1.0
     qty_match = re.search(r'\b(\d+([.,]\d+)?)\b', text)
     if qty_match:
@@ -257,7 +256,6 @@ def parse_voice_to_form(command_text):
                 qty = float(val)
                 break
 
-    # Extraction de l'unité si présente
     unit = "unité(s)"
     unit_mapping = {"g": "g", "gramme": "g", "grammes": "g", "kg": "kg", "kilo": "kg", "kilos": "kg", "ml": "ml", "litre": "L", "litres": "L", "l": "L", "boite": "boîte(s)", "boites": "boîte(s)", "pack": "pack(s)", "packs": "pack(s)"}
     for w, u_val in unit_mapping.items():
@@ -265,11 +263,10 @@ def parse_voice_to_form(command_text):
             unit = u_val
             break
 
-    # Nettoyage pour isoler le nom du produit
     stop_words = [
         "ajoute", "ajouter", "mets", "mettre", "remets", "rajoute", "note", "prends",
         "retire", "retirer", "supprime", "supprimer", "enleve", "enlève",
-        "dans", "l", "inventaire", "les", "courses", "de", "du", "la", "au", "stock",
+        "dans", "l", "inventaire", "les", "courses", "de", "du", "la", "au", "stock", "liste", "acheter",
         "un", "une", "des", "le", "les", "et", "à", "a", "g", "grammes", "kg", "kilos", "ml", "l", "litres", "boite", "boites", "pack", "packs"
     ]
     
@@ -282,181 +279,146 @@ def parse_voice_to_form(command_text):
 
     return product_name, qty, unit
 
-# --- GESTION DES ÉTATS DE SESSION POUR LE FORMULAIRE ---
-if "form_product_name" not in st.session_state:
-    st.session_state["form_product_name"] = ""
-if "form_qty" not in st.session_state:
-    st.session_state["form_qty"] = 1.0
-if "form_unit" not in st.session_state:
-    st.session_state["form_unit"] = "unité(s)"
+# --- GESTION DES ÉTATS DE SESSION ---
+if "inv_form_product" not in st.session_state:
+    st.session_state["inv_form_product"] = ""
+if "inv_form_qty" not in st.session_state:
+    st.session_state["inv_form_qty"] = 1.0
+if "inv_form_unit" not in st.session_state:
+    st.session_state["inv_form_unit"] = "unité(s)"
+
+if "shop_form_product" not in st.session_state:
+    st.session_state["shop_form_product"] = ""
+if "shop_form_qty" not in st.session_state:
+    st.session_state["shop_form_qty"] = 1.0
+if "shop_form_unit" not in st.session_state:
+    st.session_state["shop_form_unit"] = "unité(s)"
 
 # --- INTERFACE STREAMLIT ---
 st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
 
 prod_catalog, loc_list = get_catalog_lists()
 
-# --- ASSISTANT VOCAL POUR PRÉ-REMPLIR LE FORMULAIRE ---
-with st.container():
-    st.markdown("### 🎙️ Assistant Vocal (Pré-remplissage du formulaire)")
-    st.markdown("Clique sur **🎤 Parler** et dicte ton article (ex: *'3 boîtes de lait'*). Les champs de la barre latérale se rempliront automatiquement !")
-    
-    voice_html = """
-        <div style="font-family: sans-serif; display: flex; align-items: center; gap: 15px; padding: 5px 0;">
-            <button id="record-btn" onclick="toggleSpeech()" style="background-color: #4CAF50; color: white; border: none; padding: 12px 24px; border-radius: 25px; font-weight: bold; cursor: pointer; font-size: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-                🎤 Parler
-            </button>
-            <span id="status" style="color: #333; font-size: 14px; font-weight: 500;">Prêt à écouter...</span>
-        </div>
-        <script>
-            let recognition;
-            let isRecording = false;
-
-            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                recognition = new SpeechRecognition();
-                recognition.lang = 'fr-FR';
-                recognition.interimResults = false;
-                recognition.maxAlternatives = 1;
-
-                recognition.onstart = function() {
-                    isRecording = true;
-                    document.getElementById('record-btn').style.backgroundColor = '#f44336';
-                    document.getElementById('record-btn').innerText = '🔴 En écoute...';
-                    document.getElementById('status').innerText = 'Parlez maintenant...';
-                };
-
-                recognition.onresult = function(event) {
-                    const speechResult = event.results[0][0].transcript;
-                    document.getElementById('status').innerText = 'Compris : "' + speechResult + '" - Mise à jour...';
-                    
-                    const currentUrl = new URL(window.parent.location.href);
-                    currentUrl.searchParams.set('voice_fill', speechResult);
-                    window.parent.location.href = currentUrl.toString();
-                };
-
-                recognition.onerror = function(event) {
-                    document.getElementById('status').innerText = 'Erreur : ' + event.error;
-                    resetButton();
-                };
-
-                recognition.onend = function() {
-                    resetButton();
-                };
-            } else {
-                document.getElementById('status').innerText = 'Reconnaissance vocale non supportée par ce navigateur.';
-                document.getElementById('record-btn').disabled = true;
-            }
-
-            function toggleSpeech() {
-                if (!recognition) return;
-                if (isRecording) {
-                    recognition.stop();
-                } else {
-                    recognition.start();
-                }
-            }
-
-            function resetButton() {
-                isRecording = false;
-                document.getElementById('record-btn').style.backgroundColor = '#4CAF50';
-                document.getElementById('record-btn').innerText = '🎤 Parler';
-            }
-        </script>
-    """
-    
-    components.html(voice_html, height=70)
-
-    # Récupération de la voix pour remplir l'état de session du formulaire
-    query_params = st.query_params
-    if "voice_fill" in query_params:
-        spoken_text = query_params["voice_fill"]
-        st.query_params.clear()
-        
-        p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
-        st.session_state["form_product_name"] = p_name
-        st.session_state["form_qty"] = p_qty
-        st.session_state["form_unit"] = p_unit
-        st.success(f"✨ Formulaire pré-rempli avec : **{p_qty} {p_unit} de {p_name}** (Vérifie à gauche et clique sur Ajouter)")
-        st.rerun()
-
-st.divider()
-
-# --- BARRE LATÉRALE : FORMULAIRE D'AJOUT MANUEL & LIEUX ---
-with st.sidebar:
-    st.header("➕ Ajouter un produit")
-    
-    selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog)
-    
-    # Le champ est pré-rempli automatiquement par la voix si l'utilisateur a parlé
-    custom_name = st.text_input("Nom personnalisé", value=st.session_state["form_product_name"])
-    final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
-
-    selected_loc = st.selectbox("Emplacement", options=loc_list)
-
-    col_q1, col_q2 = st.columns([1, 2])
-    with col_q1:
-        qty_input = st.number_input("Qté", min_value=0.1, value=float(st.session_state["form_qty"]), step=1.0)
-    with col_q2:
-        unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
-        default_unit_idx = unit_options.index(st.session_state["form_unit"]) if st.session_state["form_unit"] in unit_options else 0
-        unit_input = st.selectbox("Unité", options=unit_options, index=default_unit_idx)
-
-    predicted_date = calculate_predicted_date(final_name, selected_loc)
-    expiry_input = st.date_input("Date de péremption", value=predicted_date)
-
-    if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
-        if final_name:
-            add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input)
-            # Réinitialisation des champs vocaux après ajout réussi
-            st.session_state["form_product_name"] = ""
-            st.session_state["form_qty"] = 1.0
-            st.session_state["form_unit"] = "unité(s)"
-            st.success(f"Ajouté : {final_name}")
-            st.rerun()
-        else:
-            st.error("Veuillez indiquer un nom de produit.")
-
-    st.divider()
-    st.header("⚙️ Gestion des lieux")
-    with st.expander("Ajouter ou Renommer un emplacement"):
-        new_loc_add = st.text_input("Nom du nouveau lieu")
-        if st.button("Créer l'emplacement"):
-            if new_loc_add.strip():
-                add_location_in_db(new_loc_add.strip())
-                st.success("Lieu ajouté avec succès !")
-                st.rerun()
-                
-        st.divider()
-        old_loc_to_rename = st.selectbox("Lieu à modifier", options=loc_list, key="rename_sel")
-        new_loc_name = st.text_input("Nouveau nom du lieu")
-        if st.button("Appliquer le renommage"):
-            if new_loc_name.strip() and old_loc_to_rename != new_loc_name.strip():
-                rename_location_in_db(old_loc_to_rename, new_loc_name.strip())
-                st.success("Emplacement mis à jour !")
-                st.rerun()
-
 # --- ONGLETS PRINCIPAUX ---
 tab_shop, tab_inv, tab_recipes = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", "🍳 Idées de Recettes"])
 
-# --- ONGLET 1 : LISTE DE COURSES (SANS CHOIX D'EMPLACEMENT) ---
+# --- FONCTION COMPOSANT VOCAL GÉNÉRIQUE ---
+def render_voice_mic(context_key):
+    voice_html = f"""
+        <div style="font-family: sans-serif; display: flex; align-items: center; gap: 15px; padding: 5px 0;">
+            <button id="record-btn-{context_key}" onclick="toggleSpeech_{context_key}()" style="background-color: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 25px; font-weight: bold; cursor: pointer; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+                🎤 Parler
+            </button>
+            <span id="status-{context_key}" style="color: #333; font-size: 13px; font-weight: 500;">Prêt à écouter...</span>
+        </div>
+        <script>
+            let recognition_{context_key};
+            let isRecording_{context_key} = false;
+
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {{
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition_{context_key} = new SpeechRecognition();
+                recognition_{context_key}.lang = 'fr-FR';
+                recognition_{context_key}.interimResults = false;
+                recognition_{context_key}.maxAlternatives = 1;
+
+                recognition_{context_key}.onstart = function() {{
+                    isRecording_{context_key} = true;
+                    document.getElementById('record-btn-{context_key}').style.backgroundColor = '#f44336';
+                    document.getElementById('record-btn-{context_key}').innerText = '🔴 En écoute...';
+                    document.getElementById('status-{context_key}').innerText = 'Parlez maintenant...';
+                }};
+
+                recognition_{context_key}.onresult = function(event) {{
+                    const speechResult = event.results[0][0].transcript;
+                    document.getElementById('status-{context_key}').innerText = 'Compris : "' + speechResult + '"';
+                    
+                    const currentUrl = new URL(window.parent.location.href);
+                    currentUrl.searchParams.set('voice_{context_key}', speechResult);
+                    window.parent.location.href = currentUrl.toString();
+                }};
+
+                recognition_{context_key}.onerror = function(event) {{
+                    document.getElementById('status-{context_key}').innerText = 'Erreur : ' + event.error;
+                    resetButton_{context_key}();
+                }};
+
+                recognition_{context_key}.onend = function() {{
+                    resetButton_{context_key}();
+                }};
+            }} else {{
+                document.getElementById('status-{context_key}').innerText = 'Non supporté.';
+                document.getElementById('record-btn-{context_key}').disabled = true;
+            }}
+
+            function toggleSpeech_{context_key}() {{
+                if (!recognition_{context_key}) return;
+                if (isRecording_{context_key}) {{
+                    recognition_{context_key}.stop();
+                }} else {{
+                    recognition_{context_key}.start();
+                }}
+            }}
+
+            function resetButton_{context_key}() {{
+                isRecording_{context_key} = false;
+                document.getElementById('record-btn-{context_key}').style.backgroundColor = '#4CAF50';
+                document.getElementById('record-btn-{context_key}').innerText = '🎤 Parler';
+            }}
+        </script>
+    """
+    return components.html(voice_html, height=60)
+
+# Gestion de la récupération vocale via l'URL
+query_params = st.query_params
+if "voice_inv" in query_params:
+    spoken_text = query_params["voice_inv"]
+    st.query_params.clear()
+    p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
+    st.session_state["inv_form_product"] = p_name
+    st.session_state["inv_form_qty"] = p_qty
+    st.session_state["inv_form_unit"] = p_unit
+    st.success(f"📦 Inventaire pré-rempli : **{p_qty} {p_unit} de {p_name}**")
+    st.rerun()
+
+if "voice_shop" in query_params:
+    spoken_text = query_params["voice_shop"]
+    st.query_params.clear()
+    p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
+    st.session_state["shop_form_product"] = p_name
+    st.session_state["shop_form_qty"] = p_qty
+    st.session_state["shop_form_unit"] = p_unit
+    st.success(f"🛒 Liste de Courses pré-remplie : **{p_qty} {p_unit} de {p_name}**")
+    st.rerun()
+
+
+# --- ONGLET 1 : LISTE DE COURSES ---
 with tab_shop:
     st.subheader("Gestion de la Liste de Courses")
+    
+    st.markdown("**🎙️ Dictée vocale pour les courses :**")
+    render_voice_mic("shop")
     
     col_s1, col_s2, col_s3, col_s4 = st.columns([3, 1, 2, 1])
     with col_s1:
         shop_prod_sel = st.selectbox("Produit", options=["-- Sélectionner ou taper --"] + prod_catalog, key="shop_prod")
-        shop_custom_name = st.text_input("Ou saisir le nom", key="shop_custom")
+        shop_custom_name = st.text_input("Ou saisir le nom", value=st.session_state["shop_form_product"], key="shop_custom")
         final_shop_name = shop_custom_name.strip() if shop_custom_name.strip() else (shop_prod_sel if shop_prod_sel != "-- Sélectionner ou taper --" else "")
     with col_s2:
-        shop_qty = st.number_input("Qté", min_value=0.1, value=1.0, step=1.0, key="shop_q")
+        shop_qty = st.number_input("Qté", min_value=0.1, value=float(st.session_state["shop_form_qty"]), step=1.0, key="shop_q")
     with col_s3:
-        shop_unit = st.selectbox("Unité", options=["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"], key="shop_u")
+        shop_unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
+        default_shop_unit_idx = shop_unit_options.index(st.session_state["shop_form_unit"]) if st.session_state["shop_form_unit"] in shop_unit_options else 0
+        shop_unit = st.selectbox("Unité", options=shop_unit_options, index=default_shop_unit_idx, key="shop_u")
     with col_s4:
         st.write("")
         st.write("")
-        if st.button("➕ Ajouter", type="primary"):
+        if st.button("➕ Ajouter aux courses", type="primary"):
             if final_shop_name:
                 add_to_shopping_list(final_shop_name, shop_qty, shop_unit)
+                st.session_state["shop_form_product"] = ""
+                st.session_state["shop_form_qty"] = 1.0
+                st.session_state["shop_form_unit"] = "unité(s)"
                 st.success(f"Ajouté aux courses : {final_shop_name}")
                 st.rerun()
 
@@ -500,6 +462,7 @@ with tab_shop:
                     st.rerun()
                 else:
                     st.warning("Aucun article sélectionné.")
+
 
 # --- ONGLET 2 : INVENTAIRE ---
 with tab_inv:
@@ -599,6 +562,7 @@ with tab_inv:
                     delete_inventory_item(item_id)
                     st.rerun()
 
+
 # --- ONGLET 3 : RECETTES WEB INTELLIGENTES ---
 with tab_recipes:
     st.subheader("🍳 Inspirations & Recettes Anti-Gaspi")
@@ -672,3 +636,58 @@ with tab_recipes:
                         
                     st.markdown(f"🛒 **À acheter en plus (viande, légumes, frais) :** {', '.join(recipe['extras'])}")
                     st.write(recipe["desc"])
+
+
+# --- BARRE LATÉRALE : FORMULAIRE D'INVENTAIRE & LIEUX ---
+with st.sidebar:
+    st.header("➕ Ajouter à l'inventaire")
+    
+    st.markdown("**🎙️ Dictée vocale pour l'inventaire :**")
+    render_voice_mic("inv")
+    
+    selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel")
+    custom_name = st.text_input("Nom du produit", value=st.session_state["inv_form_product"], key="inv_custom_input")
+    final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
+
+    selected_loc = st.selectbox("Emplacement", options=loc_list)
+
+    col_q1, col_q2 = st.columns([1, 2])
+    with col_q1:
+        qty_input = st.number_input("Qté", min_value=0.1, value=float(st.session_state["inv_form_qty"]), step=1.0, key="inv_qty_input")
+    with col_q2:
+        unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
+        default_unit_idx = unit_options.index(st.session_state["inv_form_unit"]) if st.session_state["inv_form_unit"] in unit_options else 0
+        unit_input = st.selectbox("Unité", options=unit_options, index=default_unit_idx, key="inv_unit_input")
+
+    predicted_date = calculate_predicted_date(final_name, selected_loc)
+    expiry_input = st.date_input("Date de péremption", value=predicted_date)
+
+    if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
+        if final_name:
+            add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input)
+            st.session_state["inv_form_product"] = ""
+            st.session_state["inv_form_qty"] = 1.0
+            st.session_state["inv_form_unit"] = "unité(s)"
+            st.success(f"Ajouté : {final_name}")
+            st.rerun()
+        else:
+            st.error("Veuillez indiquer un nom de produit.")
+
+    st.divider()
+    st.header("⚙️ Gestion des lieux")
+    with st.expander("Ajouter ou Renommer un emplacement"):
+        new_loc_add = st.text_input("Nom du nouveau lieu")
+        if st.button("Créer l'emplacement"):
+            if new_loc_add.strip():
+                add_location_in_db(new_loc_add.strip())
+                st.success("Lieu ajouté avec succès !")
+                st.rerun()
+                
+        st.divider()
+        old_loc_to_rename = st.selectbox("Lieu à modifier", options=loc_list, key="rename_sel")
+        new_loc_name = st.text_input("Nouveau nom du lieu")
+        if st.button("Appliquer le renommage"):
+            if new_loc_name.strip() and old_loc_to_rename != new_loc_name.strip():
+                rename_location_in_db(old_loc_to_rename, new_loc_name.strip())
+                st.success("Emplacement mis à jour !")
+                st.rerun()
