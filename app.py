@@ -290,37 +290,40 @@ with st.sidebar:
         barcode_data = manual_barcode.strip()
     
     if picture is not None and not barcode_data:
-        bytes_data = picture.getvalue()
-        np_arr = np.frombuffer(bytes_data, np.uint8)
-        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-        equalized = cv2.equalizeHist(blurred)
-        thresh = cv2.adaptiveThreshold(
-            equalized, 255, 
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, 11, 2
-        )
-        
-        detector = cv2.barcode.BarcodeDetector()
-        res = detector.detectAndDecode(thresh)
-        
-        if len(res) == 4:
-            retval, decoded_info, decoded_type, points = res
-            if retval and len(decoded_info) > 0 and decoded_info[0]:
-                barcode_data = decoded_info[0]
-        else:
-            retval, decoded_info = res[0], res[1]
-            if retval and len(decoded_info) > 0 and decoded_info[0]:
-                barcode_data = decoded_info[0]
+        try:
+            bytes_data = picture.getvalue()
+            np_arr = np.frombuffer(bytes_data, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+            equalized = cv2.equalizeHist(blurred)
+            thresh = cv2.adaptiveThreshold(
+                equalized, 255, 
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 11, 2
+            )
+            
+            detector = cv2.barcode.BarcodeDetector()
+            res = detector.detectAndDecode(thresh)
+            
+            if len(res) == 4:
+                retval, decoded_info, decoded_type, points = res
+                if retval and len(decoded_info) > 0 and decoded_info[0]:
+                    barcode_data = decoded_info[0]
+            else:
+                retval, decoded_info = res[0], res[1]
+                if retval and len(decoded_info) > 0 and decoded_info[0]:
+                    barcode_data = decoded_info[0]
 
-        if not barcode_data:
-            res_gray = detector.detectAndDecode(equalized)
-            if len(res_gray) == 4 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
-                barcode_data = res_gray[1][0]
-            elif len(res_gray) == 2 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
-                barcode_data = res_gray[1][0]
+            if not barcode_data:
+                res_gray = detector.detectAndDecode(equalized)
+                if len(res_gray) == 4 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
+                    barcode_data = res_gray[1][0]
+                elif len(res_gray) == 2 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
+                    barcode_data = res_gray[1][0]
+        except Exception:
+            pass
 
         if not barcode_data:
             st.warning("⚠️ Code non détecté. Utilise la saisie manuelle juste au-dessus 👆")
@@ -439,17 +442,30 @@ with tab_shop:
             if is_checked:
                 checked_to_validate.append(s_item)
 
-        if st.button("✔️ Valider les achats & Basculer en Inventaire", type="primary"):
-            if checked_to_validate:
-                for s_item in checked_to_validate:
-                    s_id, s_name, s_qty, s_unit = s_item
-                    pred_date = calculate_predicted_date(s_name, selected_target_loc)
-                    add_inventory_item(s_name, selected_target_loc, pred_date.strftime("%Y-%m-%d"), s_qty, s_unit)
-                    delete_shopping_item(s_id)
-                st.success("Achats basculés dans l'inventaire avec succès !")
-                st.rerun()
-            else:
-                st.warning("Aucun article sélectionné.")
+        col_act1, col_act2 = st.columns(2)
+        with col_act1:
+            if st.button("✔️ Valider les achats & Basculer en Inventaire", type="primary", use_container_width=True):
+                if checked_to_validate:
+                    for s_item in checked_to_validate:
+                        s_id, s_name, s_qty, s_unit = s_item
+                        pred_date = calculate_predicted_date(s_name, selected_target_loc)
+                        add_inventory_item(s_name, selected_target_loc, pred_date.strftime("%Y-%m-%d"), s_qty, s_unit)
+                        delete_shopping_item(s_id)
+                    st.success("Achats basculés dans l'inventaire avec succès !")
+                    st.rerun()
+                else:
+                    st.warning("Aucun article sélectionné.")
+                    
+        with col_act2:
+            if st.button("🗑️ Retirer de la liste (sans ajouter)", use_container_width=True):
+                if checked_to_validate:
+                    for s_item in checked_to_validate:
+                        s_id, s_name, s_qty, s_unit = s_item
+                        delete_shopping_item(s_id)
+                    st.success("Articles retirés de la liste de courses.")
+                    st.rerun()
+                else:
+                    st.warning("Aucun article sélectionné.")
 
 # --- ONGLET 2 : INVENTAIRE ---
 with tab_inv:
