@@ -126,10 +126,29 @@ def categorize_product(name):
         return "📦 Autres"
 
 def save_product_category_to_catalog(product_name, category):
-    """Mise à jour ultra-légère en cache session pour éviter d'appeler l'API en boucle"""
+    """Sauvegarde de manière persistante dans la feuille Google Sheets 'catalog'"""
     if "catalog_cache" not in st.session_state:
         st.session_state["catalog_cache"] = {}
     st.session_state["catalog_cache"][product_name.strip().lower()] = category
+
+    if db is None:
+        return
+    try:
+        cat_sheet = db.worksheet("catalog")
+        records = cat_sheet.get_all_records()
+        
+        found_row = None
+        for i, r in enumerate(records, start=2):
+            if str(r.get("product_name", "")).strip().lower() == product_name.strip().lower():
+                found_row = i
+                break
+        
+        if found_row:
+            cat_sheet.update_cell(found_row, 3, category)
+        else:
+            cat_sheet.append_row([product_name, "", category])
+    except Exception as e:
+        st.error(f"Erreur lors de la sauvegarde dans le catalogue : {e}")
 
 def get_all_inventory():
     if db is None:
@@ -195,7 +214,6 @@ def update_item_category(item_id, product_name, new_category):
         sheet = db.worksheet("inventory")
         cell = sheet.find(str(item_id))
         if cell:
-            # Met à jour directement la cellule de la catégorie (colonne 7) sans parcourir tout le catalogue
             sheet.update_cell(cell.row, 7, new_category)
         save_product_category_to_catalog(product_name, new_category)
     except Exception as e:
@@ -517,6 +535,7 @@ with tab_inv:
                 new_cat_choice = st.selectbox("Catégorie", options=category_options, index=cat_idx, key=f"cat_sel_{item_id}", label_visibility="collapsed")
                 if new_cat_choice != category:
                     update_item_category(item_id, name, new_cat_choice)
+                    st.success(f"Catégorie mise à jour pour {name} !")
                     st.rerun()
 
             with col3:
