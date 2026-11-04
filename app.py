@@ -444,23 +444,6 @@ with tab_inv:
 
     filtered_items.sort(key=lambda x: x[3])
 
-    expiring_soon = 0
-    expired_count = 0
-
-    for item in filtered_items:
-        try:
-            exp_obj = datetime.datetime.strptime(item[3].strip(), "%Y-%m-%d").date()
-            delta = (exp_obj - today_date).days
-            if delta < 0:
-                expired_count += 1
-            elif 0 <= delta <= 3:
-                expiring_soon += 1
-        except:
-            pass
-
-    if expired_count > 0 or expiring_soon > 0:
-        st.warning(f"⚠️ Alertes : {expired_count} produit(s) périmé(s) | {expiring_soon} produit(s) à consommer rapidement.")
-
     if not filtered_items:
         st.info("Aucun produit ne correspond aux critères dans l'inventaire.")
 
