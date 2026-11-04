@@ -90,7 +90,6 @@ def get_all_inventory():
         items = []
         for r in records:
             try:
-                # Gestion de la rétrocompatibilité si la colonne 'category' n'existe pas encore dans le sheet
                 cat = str(r.get("category", ""))
                 if not cat:
                     cat = categorize_product(str(r.get("name", "")))
@@ -131,7 +130,6 @@ def add_inventory_item(name, location, expiry_date, quantity, unit, category):
                 sheet.update_cell(cell.row, 5, new_qty)
         else:
             new_id = max([r.get("id", 0) for r in records], default=0) + 1
-            # S'assure que la feuille a la colonne category si besoin, sinon append avec les 7 colonnes
             sheet.append_row([new_id, name, location, expiry_date, quantity, unit, category])
         
         cat_sheet = db.worksheet("catalog")
@@ -313,8 +311,23 @@ st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Périmés")
 
 prod_catalog, loc_list = get_catalog_lists()
 
+# Calcul préalable du nombre de produits périmés ou proches de pérempter (<= 7 jours)
+all_inv_items = get_all_inventory()
+today_date = datetime.datetime.now().date()
+alert_count = 0
+for it in all_inv_items:
+    try:
+        exp_dt = datetime.datetime.strptime(str(it[3]).strip(), "%Y-%m-%d").date()
+        if (exp_dt - today_date).days <= 7:
+            alert_count += 1
+    except:
+        pass
+
+# Libellé dynamique de l'onglet avec pastille / compteur
+expiry_tab_label = f"⏳ Périmés sous 7 jours ({alert_count})" if alert_count > 0 else "⏳ Périmés sous 7 jours"
+
 # --- ONGLETS PRINCIPAUX ---
-tab_shop, tab_inv, tab_expiry = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", "⏳ Périmés sous 7 jours"])
+tab_shop, tab_inv, tab_expiry = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", expiry_tab_label])
 
 # --- ONGLET 1 : LISTE DE COURSES ---
 with tab_shop:
@@ -413,7 +426,7 @@ with tab_shop:
 with tab_inv:
     st.subheader("Mon Inventaire")
 
-    items = get_all_inventory()
+    items = all_inv_items
     if items:
         st.session_state["cached_inventory"] = items
 
@@ -431,14 +444,13 @@ with tab_inv:
 
     filtered_items.sort(key=lambda x: x[3])
 
-    today = datetime.datetime.now().date()
     expiring_soon = 0
     expired_count = 0
 
     for item in filtered_items:
         try:
             exp_obj = datetime.datetime.strptime(item[3].strip(), "%Y-%m-%d").date()
-            delta = (exp_obj - today).days
+            delta = (exp_obj - today_date).days
             if delta < 0:
                 expired_count += 1
             elif 0 <= delta <= 3:
@@ -461,7 +473,7 @@ with tab_inv:
         status_text = "En cours"
         try:
             exp_obj = datetime.datetime.strptime(expiry_date.strip(), "%Y-%m-%d").date()
-            delta = (exp_obj - today).days
+            delta = (exp_obj - today_date).days
             if delta < 0:
                 status_text = f"Périmé ({abs(delta)} j)"
             elif 0 <= delta <= 3:
@@ -505,17 +517,14 @@ with tab_inv:
 with tab_expiry:
     st.subheader("⏳ Produits périmés ou à consommer dans les 7 jours")
     
-    items = get_all_inventory()
-    today = datetime.datetime.now().date()
-    
     upcoming_expiry_items = []
     
-    for item in items:
+    for item in all_inv_items:
         item_id, name, location, expiry_date, quantity, unit, category = item
         try:
             clean_date = str(expiry_date).strip()
             exp_obj = datetime.datetime.strptime(clean_date, "%Y-%m-%d").date()
-            delta = (exp_obj - today).days
+            delta = (exp_obj - today_date).days
             if delta <= 7:
                 upcoming_expiry_items.append((item, delta))
         except:
@@ -542,7 +551,7 @@ with tab_expiry:
                 if delta < 0:
                     badge = f"🔴 **Périmé depuis {abs(delta)} jour(s)**"
                 elif delta == 0:
-                    badge = "⚠️ **Périme aujourd'hui !**"
+                    badge = f"⚠️ **Périme aujourd'hui !**"
                 else:
                     badge = f"🟠 **Expire dans {delta} jour(s)** (le {expiry_fr})"
                 
@@ -567,7 +576,6 @@ with st.sidebar:
     custom_name = st.text_input("Nom du produit", key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
-    # Ajout du champ Catégorie pré-rempli intelligemment si le produit est reconnu
     default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
     category_options = ["🥩 Viandes & Poissons", "🥛 Produits Laitiers", "🥚 Œufs", "🍎 Fruits & Légumes", "📦 Autres"]
     cat_default_idx = category_options.index(default_cat_suggestion) if default_cat_suggestion in category_options else 4
