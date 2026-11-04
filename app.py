@@ -4,9 +4,8 @@ from google.oauth2.service_account import Credentials
 import unicodedata
 import requests
 import re
-import cv2
-import numpy as np
-from datetime import datetime, timedelta
+import datetime
+import streamlit.components.v1 as components
 
 # Configuration de la page
 st.set_page_config(
@@ -15,22 +14,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- STYLE CSS POUR LE CADRE DE GUIDAGE ---
+# --- STYLE CSS ---
 st.markdown("""
 <style>
-    .barcode-guide {
-        border: 2px dashed #4CAF50;
+    .voice-box {
+        background-color: #f0f2f6;
+        padding: 15px;
         border-radius: 10px;
-        padding: 10px;
-        background-color: rgba(76, 175, 80, 0.05);
-        text-align: center;
-        margin-bottom: 10px;
-    }
-    .barcode-guide p {
-        color: #2E7D32;
-        font-weight: bold;
-        font-size: 14px;
-        margin: 0;
+        border: 1px solid #d1d5db;
+        margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -45,7 +37,7 @@ def normalize_text(text):
     )
     return text
 
-# --- CONNEXION GOOGLE SHEETS (MODE CLOUD & LOCAL) ---
+# --- CONNEXION GOOGLE SHEETS ---
 @st.cache_resource
 def init_google_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -259,129 +251,184 @@ def calculate_predicted_date(name, location):
         elif "oeuf" in n_lower:
             days = 21
             
-    return datetime.now().date() + timedelta(days=days)
+    return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
-# Gestion de la session pour le scan
-if "scanned_product_name" not in st.session_state:
-    st.session_state["scanned_product_name"] = ""
-if "scanned_qty" not in st.session_state:
-    st.session_state["scanned_qty"] = 1.0
+# --- ANALYSEUR VOCAL INTELLIGENT (PARSING) ---
+def process_voice_command(command_text):
+    text = normalize_text(command_text)
+    
+    # Détection de l'action
+    action = None
+    if any(w in text for w in ["ajoute", "ajouter", "mets", "remets", "rajoute"]):
+        action = "add"
+    elif any(w in text for w in ["retire", "retirer", "supprime", "supprimer", "enleve", "enlève"]):
+        action = "remove"
+        
+    if not action:
+        return "Action non comprise. Essayez 'Ajoute 2 lait dans l'inventaire' ou 'Retire du beurre des courses'."
+
+    # Détection de la cible (inventaire vs courses)
+    target = "shop" # Par défaut la liste de courses
+    if any(w in text for w in ["inventaire", "frigo", "congelateur", "placard", "stock"]):
+        target = "inventory"
+    elif any(w in text for w in ["courses", "liste"]):
+        target = "shop"
+
+    # Extraction de la quantité
+    qty = 1.0
+    qty_match = re.search(r'\b(\d+([.,]\d+)?)\b', text)
+    if qty_match:
+        qty = float(qty_match.group(1).replace(',', '.'))
+    else:
+        word_to_num = {"un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "dix": 10}
+        for word, val in word_to_num.items():
+            if f" {word} " in f" {text} ":
+                qty = float(val)
+                break
+
+    # Nettoyage du nom du produit
+    clean_text = text
+    for w in ["ajoute", "ajouter", "mets", "remets", "rajoute", "retire", "retirer", "supprime", "supprimer", "enleve", "enlève", "dans", "l", "inventaire", "les", "courses", "de", "du", "la", "au", "stock"]:
+        clean_text = clean_text.replace(w, "")
+    
+    product_name = re.sub(r'\d+', '', clean_text).strip().capitalize()
+    
+    if not product_name:
+        return "Je n'ai pas identifié le nom du produit."
+
+    # Exécution selon l'action et la cible
+    if action == "add":
+        if target == "inventory":
+            default_loc = loc_list[0] if loc_list else "Frigo ❄️"
+            pred_date = calculate_predicted_date(product_name, default_loc)
+            add_inventory_item(product_name, default_loc, pred_date.strftime("%Y-%m-%d"), qty, "unité(s)")
+            return f"✅ Ajouté à l'inventaire : {qty} x {product_name}"
+        else:
+            add_to_shopping_list(product_name, qty, "unité(s)")
+            return f"✅ Ajouté aux courses : {qty} x {product_name}"
+            
+    elif action == "remove":
+        if target == "inventory":
+            inv_items = get_all_inventory()
+            found = False
+            for i_id, i_name, i_loc, i_exp, i_qty, i_unit in inv_items:
+                if normalize_text(product_name) in normalize_text(i_name):
+                    new_q = i_qty - qty
+                    if new_q <= 0:
+                        delete_inventory_item(i_id)
+                    else:
+                        update_item_quantity(i_id, new_q)
+                    found = True
+                    break
+            if found:
+                return f"🗑️ Retiré de l'inventaire : {product_name}"
+            else:
+                return f"⚠️ Produit '{product_name}' introuvable dans l'inventaire."
+        else:
+            shop_items = get_shopping_list()
+            found = False
+            for s_id, s_name, s_qty, s_unit in shop_items:
+                if normalize_text(product_name) in normalize_text(s_name):
+                    delete_shopping_item(s_id)
+                    found = True
+                    break
+            if found:
+                return f"🗑️ Retiré des courses : {product_name}"
+            else:
+                return f"⚠️ Produit '{product_name}' introuvable dans la liste de courses."
+
+    return "Commande non traitée."
 
 # --- INTERFACE STREAMLIT ---
-
 st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
 
 prod_catalog, loc_list = get_catalog_lists()
 
-with st.sidebar:
-    st.header("📷 Scanner de code-barres")
+# --- SECTION COMMANDE VOCALE ---
+with st.container():
+    st.markdown("### 🎙️ Assistant Vocal Intelligent")
+    st.markdown("Clique sur le micro et dicte ta commande (ex: *'Ajoute trois lait dans l'inventaire'*, *'Retire le beurre des courses'*).")
     
-    st.markdown("""
-        <div class="barcode-guide">
-            <p>🎯 Centre bien le code-barres au milieu en laissant de la marge blanche de chaque côté</p>
+    components.html("""
+        <div style="font-family: sans-serif; display: flex; align-items: center; gap: 10px;">
+            <button id="record-btn" onclick="toggleSpeech()" style="background-color: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 14px;">
+                🎤 Parler
+            </button>
+            <span id="status" style="color: #555; font-size: 14px;">Micro en attente...</span>
         </div>
-    """, unsafe_allow_html=True)
-    
-    picture = st.camera_input("Prendre en photo le code-barres")
-    
-    barcode_data = ""
-    manual_barcode = st.text_input("Ou saisir les chiffres du code", placeholder="Ex: 3600900022521")
-    if manual_barcode:
-        barcode_data = manual_barcode.strip()
-    
-    if picture is not None and not barcode_data:
-        try:
-            bytes_data = picture.getvalue()
-            np_arr = np.frombuffer(bytes_data, np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-            equalized = cv2.equalizeHist(blurred)
-            thresh = cv2.adaptiveThreshold(
-                equalized, 255, 
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                cv2.THRESH_BINARY, 11, 2
-            )
-            
-            detector = cv2.barcode.BarcodeDetector()
-            res = detector.detectAndDecode(thresh)
-            
-            if len(res) == 4:
-                retval, decoded_info, decoded_type, points = res
-                if retval and len(decoded_info) > 0 and decoded_info[0]:
-                    barcode_data = decoded_info[0]
-            else:
-                retval, decoded_info = res[0], res[1]
-                if retval and len(decoded_info) > 0 and decoded_info[0]:
-                    barcode_data = decoded_info[0]
+        <script>
+            let recognition;
+            let isRecording = false;
 
-            if not barcode_data:
-                res_gray = detector.detectAndDecode(equalized)
-                if len(res_gray) == 4 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
-                    barcode_data = res_gray[1][0]
-                elif len(res_gray) == 2 and res_gray[0] and len(res_gray[1]) > 0 and res_gray[1][0]:
-                    barcode_data = res_gray[1][0]
-        except Exception:
-            pass
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.lang = 'fr-FR';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
 
-        if not barcode_data:
-            st.warning("⚠️ Code non détecté. Utilise la saisie manuelle juste au-dessus 👆")
+                recognition.onstart = function() {
+                    isRecording = true;
+                    document.getElementById('record-btn').style.backgroundColor = '#f44336';
+                    document.getElementById('record-btn').innerText = '🔴 En écoute...';
+                    document.getElementById('status').innerText = 'Parlez maintenant...';
+                };
 
-    if barcode_data:
-        st.success(f"Code validé : {barcode_data}")
-        url = f"https://world.openfoodfacts.org/api/v0/product/{barcode_data}.json"
-        headers = {'User-Agent': 'NoWasteCloud_Bertrand - Python App - Version 1.0'}
-        try:
-            response = requests.get(url, headers=headers, timeout=5)
-            data = response.json()
-            if data.get('status') == 1:
-                p_name = data['product'].get('product_name', 'Sans nom')
-                brand = data['product'].get('brands', '')
-                qty_str = data['product'].get('quantity', '')
-                
-                st.session_state["scanned_product_name"] = f"{p_name} {brand}".strip()
-                if qty_str:
-                    match = re.match(r"([\d\.]+)\s*(.*)", qty_str)
-                    if match:
-                        st.session_state["scanned_qty"] = float(match.group(1))
-                st.rerun()
-            else:
-                st.warning("Produit inconnu dans Open Food Facts.")
-        except Exception as e:
-            st.error(f"Erreur API : {e}")
+                recognition.onresult = function(event) {
+                    const speechResult = event.results[0][0].transcript;
+                    document.getElementById('status').innerText = 'Transcrit : "' + speechResult + '"';
+                    const currentUrl = new URL(window.parent.location.href);
+                    currentUrl.searchParams.set('voice_cmd', speechResult);
+                    window.parent.location.href = currentUrl.toString();
+                };
 
-    st.divider()
-    st.header("➕ Ajouter un produit")
-    
-    selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog)
-    default_name = st.session_state["scanned_product_name"]
-    
-    custom_name = st.text_input("Nom personnalisé / scanné", value=default_name)
-    final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
+                recognition.onerror = function(event) {
+                    document.getElementById('status').innerText = 'Erreur micro : ' + event.error;
+                    resetButton();
+                };
 
-    selected_loc = st.selectbox("Emplacement", options=loc_list)
+                recognition.onend = function() {
+                    resetButton();
+                };
+            } else {
+                document.getElementById('status').innerText = 'La reconnaissance vocale n\\'est pas supportée par ce navigateur.';
+                document.getElementById('record-btn').disabled = true;
+            }
 
-    col_q1, col_q2 = st.columns([1, 2])
-    with col_q1:
-        qty_input = st.number_input("Qté", min_value=0.1, value=st.session_state["scanned_qty"], step=1.0)
-    with col_q2:
-        unit_input = st.selectbox("Unité", options=["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"], index=0)
+            function toggleSpeech() {
+                if (!recognition) return;
+                if (isRecording) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            }
 
-    predicted_date = calculate_predicted_date(final_name, selected_loc)
-    expiry_input = st.date_input("Date de péremption", value=predicted_date)
+            function resetButton() {
+                isRecording = false;
+                document.getElementById('record-btn').style.backgroundColor = '#4CAF50';
+                document.getElementById('record-btn').innerText = '🎤 Parler';
+            }
+        </script>
+    """, height=60)
 
-    if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
-        if final_name:
-            add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input)
-            st.session_state["scanned_product_name"] = ""
-            st.session_state["scanned_qty"] = 1.0
-            st.success(f"Ajouté : {final_name}")
+    query_params = st.query_params
+    if "voice_cmd" in query_params:
+        spoken_text = query_params["voice_cmd"]
+        st.query_params.clear()
+        
+        result_msg = process_voice_command(spoken_text)
+        st.info(f"🗣️ **Vous avez dit :** « {spoken_text} »")
+        if "✅" in result_msg or "🗑️" in result_msg:
+            st.success(result_msg)
             st.rerun()
         else:
-            st.error("Veuillez indiquer un nom de produit.")
+            st.warning(result_msg)
 
-    st.divider()
+st.divider()
+
+# --- BARRE LATÉRALE : SEULEMENT LA GESTION DES LIEUX ---
+with st.sidebar:
     st.header("⚙️ Gestion des lieux")
     with st.expander("Ajouter ou Renommer un emplacement"):
         new_loc_add = st.text_input("Nom du nouveau lieu")
@@ -490,7 +537,7 @@ with tab_inv:
 
     filtered_items.sort(key=lambda x: x[3])
 
-    today = datetime.now().date()
+    today = datetime.datetime.now().date()
     expiring_soon = 0
     expired_count = 0
 
