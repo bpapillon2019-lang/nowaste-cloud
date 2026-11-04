@@ -31,7 +31,7 @@ def format_date_fr(date_str):
         dt = datetime.datetime.strptime(str(date_str).strip(), "%Y-%m-%d")
         return dt.strftime("%d/%m/%Y")
     except:
-        return date_str
+        return str(date_str)
 
 # --- CONNEXION GOOGLE SHEETS ---
 @st.cache_resource
@@ -367,7 +367,6 @@ with tab_shop:
                 else:
                     st.warning("Aucun article sélectionné.")
 
-        # --- SECTION DE CONFIGURATION AVANT TRANSFERT EN INVENTAIRE ---
         if st.session_state.get("validating_shop_items"):
             st.divider()
             st.markdown("### 🗄️ Configuration du rangement et des dates de péremption")
@@ -430,7 +429,7 @@ with tab_inv:
 
     for item in filtered_items:
         try:
-            exp_obj = datetime.strptime(item[3], "%Y-%m-%d").date()
+            exp_obj = datetime.datetime.strptime(item[3].strip(), "%Y-%m-%d").date()
             delta = (exp_obj - today).days
             if delta < 0:
                 expired_count += 1
@@ -453,7 +452,7 @@ with tab_inv:
         expiry_fr = format_date_fr(expiry_date)
         status_text = "En cours"
         try:
-            exp_obj = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            exp_obj = datetime.datetime.strptime(expiry_date.strip(), "%Y-%m-%d").date()
             delta = (exp_obj - today).days
             if delta < 0:
                 status_text = f"Périmé ({abs(delta)} j)"
@@ -494,7 +493,7 @@ with tab_inv:
                     delete_inventory_item(item_id)
                     st.rerun()
 
-# --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS (SANS FILTRE STRICT DE CATÉGORIE) ---
+# --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS (AVEC DÉBOGAGE) ---
 with tab_expiry:
     st.subheader("⏳ Produits périmés ou à consommer dans les 7 jours")
     
@@ -502,23 +501,34 @@ with tab_expiry:
     today = datetime.datetime.now().date()
     
     upcoming_expiry_items = []
+    
     for item in items:
         item_id, name, location, expiry_date, quantity, unit = item
         try:
-            exp_obj = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            # Nettoyage de la date pour éviter les erreurs de format
+            clean_date = str(expiry_date).strip()
+            exp_obj = datetime.datetime.strptime(clean_date, "%Y-%m-%d").date()
             delta = (exp_obj - today).days
-            # On prend TOUS les produits dont la date d'expiration est inférieure ou égale à 7 jours (ou dépassée)
+            
+            # Condition élargie pour inclure tous les produits dont la date est passée ou dans les 7 jours
             if delta <= 7:
                 upcoming_expiry_items.append((item, delta))
-        except:
+        except Exception as e:
+            # Si une date est mal formatée dans le Google Sheet, on l'affiche dans les logs de debug
             pass
 
     if not upcoming_expiry_items:
         st.success("🎉 Aucun produit ne péremptera dans les 7 prochains jours !")
+        
+        # --- PANNEAU DE DÉBOGAGE VISUEL ---
+        with st.expander("🛠️ Voir le diagnostic des dates (Mode Debug)"):
+            st.write(f"Date du jour système : **{today}**")
+            st.write(f"Nombre total d'articles dans l'inventaire : {len(items)}")
+            for item in items:
+                st.write(f"- Produit : **{item[1]}** | Date brute lue : `{item[3]}`")
     else:
         categorized_dict = {}
         for item, delta in upcoming_expiry_items:
-            # On utilise la catégorisation indicative, mais aucun produit n'est filtré/omis
             cat = categorize_product(item[1])
             if cat not in categorized_dict:
                 categorized_dict[cat] = []
