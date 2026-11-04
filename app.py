@@ -339,15 +339,9 @@ with tab_shop:
 
         col_act1, col_act2 = st.columns(2)
         with col_act1:
-            if st.button("✔️ Valider les achats & Basculer en Inventaire", type="primary", use_container_width=True):
+            if st.button("✔️ Valider les achats & Préparer le rangement", type="primary", use_container_width=True):
                 if checked_to_validate:
-                    default_target_loc = loc_list[0] if loc_list else "Frigo ❄️"
-                    for s_item in checked_to_validate:
-                        s_id, s_name, s_qty, s_unit = s_item
-                        pred_date = calculate_predicted_date(s_name, default_target_loc)
-                        add_inventory_item(s_name, default_target_loc, pred_date.strftime("%Y-%m-%d"), s_qty, s_unit)
-                        delete_shopping_item(s_id)
-                    st.success("Achats basculés dans l'inventaire avec succès !")
+                    st.session_state["validating_shop_items"] = checked_to_validate
                     st.rerun()
                 else:
                     st.warning("Aucun article sélectionné.")
@@ -362,6 +356,41 @@ with tab_shop:
                     st.rerun()
                 else:
                     st.warning("Aucun article sélectionné.")
+
+        # --- SECTION DE CONFIGURATION AVANT TRANSFERT EN INVENTAIRE ---
+        if st.session_state.get("validating_shop_items"):
+            st.divider()
+            st.markdown("### 🗄️ Configuration du rangement et des dates de péremption")
+            st.info("Sélectionnez l'emplacement et ajustez la date de péremption pour chaque article avant de les valider dans l'inventaire.")
+
+            default_target_loc = loc_list[0] if loc_list else "Frigo ❄️"
+            batch_expiry_data = {}
+
+            with st.form("batch_validation_form"):
+                for s_item in st.session_state["validating_shop_items"]:
+                    s_id, s_name, s_qty, s_unit = s_item
+                    st.markdown(f"**{s_name}** ({s_qty} {s_unit})")
+                    
+                    c_loc, c_date = st.columns(2)
+                    with c_loc:
+                        chosen_loc = st.selectbox(f"Emplacement pour {s_name}", options=loc_list, index=loc_list.index(default_target_loc) if default_target_loc in loc_list else 0, key=f"val_loc_{s_id}")
+                    with c_date:
+                        pred_date = calculate_predicted_date(s_name, chosen_loc)
+                        chosen_date = st.date_input(f"Date de péremption pour {s_name}", value=pred_date, key=f"val_date_{s_id}")
+                    
+                    batch_expiry_data[s_id] = (s_item, chosen_loc, chosen_date)
+                    st.write("---")
+
+                submitted_batch = st.form_submit_button("🚀 Confirmer le transfert dans l'inventaire", type="primary")
+                if submitted_batch:
+                    for s_id, (s_item, loc, exp_date) in batch_expiry_data.items():
+                        _, s_name, s_qty, s_unit = s_item
+                        add_inventory_item(s_name, loc, exp_date.strftime("%Y-%m-%d"), s_qty, s_unit)
+                        delete_shopping_item(s_id)
+                    
+                    st.session_state["validating_shop_items"] = []
+                    st.success("🎉 Articles transférés dans l'inventaire avec succès !")
+                    st.rerun()
 
 # --- ONGLET 2 : INVENTAIRE ---
 with tab_inv:
@@ -442,7 +471,6 @@ with tab_inv:
                 current_unit_idx = unit_options.index(unit) if unit in unit_options else 0
                 new_unit = st.selectbox("Unité", options=unit_options, index=current_unit_idx, key=f"unit_sel_{item_id}", label_visibility="collapsed")
 
-            # Mise à jour si la quantité ou l'unité change
             if new_qty != quantity or new_unit != unit:
                 if new_qty <= 0:
                     delete_inventory_item(item_id)
