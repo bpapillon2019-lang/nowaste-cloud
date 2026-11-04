@@ -347,16 +347,14 @@ with tab_shop:
 # --- ONGLET 2 : INVENTAIRE ---
 with tab_inv:
     st.subheader("Mon Inventaire")
-    
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        search_query = st.text_input("Rechercher par nom", key="inv_search")
-    with col_f2:
-        filter_loc = st.selectbox("Filtrer par lieu", options=["Tous les lieux"] + loc_list, key="inv_loc_filter")
 
     items = get_all_inventory()
     if items:
         st.session_state["cached_inventory"] = items
+
+    # Récupération des filtres situés dans la barre latérale
+    search_query = st.session_state.get("sidebar_search", "")
+    filter_loc = st.session_state.get("sidebar_loc_filter", "Tous les lieux")
 
     filtered_items = []
     for item in items:
@@ -388,7 +386,7 @@ with tab_inv:
         st.warning(f"⚠️ Alertes : {expired_count} produit(s) périmé(s) | {expiring_soon} produit(s) à consommer rapidement.")
 
     if not filtered_items:
-        st.info("Aucun produit dans l'inventaire.")
+        st.info("Aucun produit ne correspond aux critères dans l'inventaire.")
 
     for item in filtered_items:
         item_id, name, location, expiry_date, quantity, unit = item
@@ -518,15 +516,20 @@ with tab_recipes:
                     st.markdown(f"🛒 **À acheter en plus (viande, légumes, frais) :** {', '.join(recipe['extras'])}")
                     st.write(recipe["desc"])
 
-# --- BARRE LATÉRALE : FORMULAIRE D'INVENTAIRE & LIEUX ---
+# --- BARRE LATÉRALE : FILTRES, FORMULAIRE & GESTION DES LIEUX ---
 with st.sidebar:
+    st.header("🔍 Filtrer l'inventaire")
+    st.text_input("Filtrer par article", key="sidebar_search")
+    st.selectbox("Filtrer par emplacement", options=["Tous les lieux"] + loc_list, key="sidebar_loc_filter")
+
+    st.divider()
     st.header("➕ Ajouter à l'inventaire")
     
     selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel_box")
     custom_name = st.text_input("Nom du produit", key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
-    selected_loc = st.selectbox("Emplacement", options=loc_list)
+    selected_loc = st.selectbox("Emplacement", options=loc_list, key="inv_loc_input_box")
 
     col_q1, col_q2 = st.columns([1, 2])
     with col_q1:
