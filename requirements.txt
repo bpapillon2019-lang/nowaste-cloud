@@ -4,3 +4,4 @@ google-auth
 requests
 opencv-python-headless
 numpy
+streamlit-mic-recorder

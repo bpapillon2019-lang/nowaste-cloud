@@ -5,7 +5,7 @@ import unicodedata
 import requests
 import re
 import datetime
-import streamlit.components.v1 as components
+from streamlit_mic_recorder import speech_to_text
 
 # Configuration de la page
 st.set_page_config(
@@ -188,7 +188,7 @@ def get_catalog_lists():
         return ["Beurre", "Lait"], ["Frigo ❄️", "Placard 📦"]
     sheet = db.worksheet("catalog")
     records = sheet.get_all_records()
-    products = list(set([r.get("product_name") for r in records if r.get("product_name")]))
+    products = list(set([r.get("product_name"] for r in records if r.get("product_name")]))
     locations = list(set([r.get("location_name") for r in records if r.get("location_name")]))
     products.sort()
     locations.sort()
@@ -240,7 +240,7 @@ def calculate_predicted_date(name, location):
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
-# --- ANALYSEUR VOCAL POUR LE FORMULAIRE ---
+# --- ANALYSEUR VOCAL ---
 def parse_voice_to_form(command_text):
     original_text = command_text.strip()
     text = normalize_text(original_text)
@@ -277,14 +277,10 @@ def parse_voice_to_form(command_text):
     if not product_name:
         product_name = original_text.capitalize()
 
-    return target_type(text), product_name, qty, unit
+    target = "shopping" if any(w in text for w in ["courses", "liste", "acheter", "achat"]) else "inventory"
+    return target, product_name, qty, unit
 
-def target_type(text):
-    if any(w in text for w in ["courses", "liste", "acheter", "achat"]):
-        return "shopping"
-    return "inventory"
-
-# --- GESTION DES ÉTATS DE SESSION ---
+# --- ÉTATS DE SESSION ---
 if "inv_product" not in st.session_state:
     st.session_state["inv_product"] = ""
 if "inv_qty" not in st.session_state:
@@ -307,99 +303,21 @@ prod_catalog, loc_list = get_catalog_lists()
 # --- ONGLETS PRINCIPAUX ---
 tab_shop, tab_inv, tab_recipes = st.tabs(["🛒 Liste de Courses", "📦 Mon Inventaire", "🍳 Idées de Recettes"])
 
-# --- FONCTION COMPOSANT VOCAL ---
-def render_voice_mic(context_key):
-    voice_html = f"""
-        <div style="font-family: sans-serif; display: flex; align-items: center; gap: 15px; padding: 5px 0;">
-            <button id="record-btn-{context_key}" onclick="toggleSpeech_{context_key}()" style="background-color: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 25px; font-weight: bold; cursor: pointer; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-                🎤 Parler
-            </button>
-            <span id="status-{context_key}" style="color: #333; font-size: 13px; font-weight: 500;">Prêt à écouter...</span>
-        </div>
-        <script>
-            let recognition_{context_key};
-            let isRecording_{context_key} = false;
-
-            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {{
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                recognition_{context_key} = new SpeechRecognition();
-                recognition_{context_key}.lang = 'fr-FR';
-                recognition_{context_key}.interimResults = false;
-                recognition_{context_key}.maxAlternatives = 1;
-
-                recognition_{context_key}.onstart = function() {{
-                    isRecording_{context_key} = true;
-                    document.getElementById('record-btn-{context_key}').style.backgroundColor = '#f44336';
-                    document.getElementById('record-btn-{context_key}').innerText = '🔴 En écoute...';
-                    document.getElementById('status-{context_key}').innerText = 'Parlez maintenant...';
-                }};
-
-                recognition_{context_key}.onresult = function(event) {{
-                    const speechResult = event.results[0][0].transcript;
-                    document.getElementById('status-{context_key}').innerText = 'Compris : "' + speechResult + '"';
-                    
-                    const currentUrl = new URL(window.parent.location.href);
-                    currentUrl.searchParams.set('voice_cmd', speechResult);
-                    window.parent.location.href = currentUrl.toString();
-                }};
-
-                recognition_{context_key}.onerror = function(event) {{
-                    document.getElementById('status-{context_key}').innerText = 'Erreur : ' + event.error;
-                    resetButton_{context_key}();
-                }};
-
-                recognition_{context_key}.onend = function() {{
-                    resetButton_{context_key}();
-                }};
-            }} else {{
-                document.getElementById('status-{context_key}').innerText = 'Non supporté.';
-                document.getElementById('record-btn-{context_key}').disabled = true;
-            }}
-
-            function toggleSpeech_{context_key}() {{
-                if (!recognition_{context_key}) return;
-                if (isRecording_{context_key}) {{
-                    recognition_{context_key}.stop();
-                }} else {{
-                    recognition_{context_key}.start();
-                }}
-            }}
-
-            function resetButton_{context_key}() {{
-                isRecording_{context_key} = false;
-                document.getElementById('record-btn-{context_key}').style.backgroundColor = '#4CAF50';
-                document.getElementById('record-btn-{context_key}').innerText = '🎤 Parler';
-            }}
-        </script>
-    """
-    return components.html(voice_html, height=60)
-
-# Traitement de la voix globale dès le chargement si présente dans l'URL
-query_params = st.query_params
-if "voice_cmd" in query_params:
-    spoken_text = query_params["voice_cmd"]
-    st.query_params.clear()
-    
-    target, p_name, p_qty, p_unit = parse_voice_to_form(spoken_text)
-    
-    if target == "inventory":
-        st.session_state["inv_product"] = p_name
-        st.session_state["inv_qty"] = p_qty
-        st.session_state["inv_unit"] = p_unit
-    else:
-        st.session_state["shop_product"] = p_name
-        st.session_state["shop_qty"] = p_qty
-        st.session_state["shop_unit"] = p_unit
-    st.rerun()
-
-
 # --- ONGLET 1 : LISTE DE COURSES ---
 with tab_shop:
     st.subheader("Gestion de la Liste de Courses")
     
-    st.markdown("**🎙️ Dictée vocale pour les courses :**")
-    render_voice_mic("shop")
+    st.markdown("**🎙️ Dictée vocale (Liste de Courses) :**")
+    voice_shop_text = speech_to_text(language='fr-FR', start_prompt="🎤 Parler", stop_prompt="🛑 Arrêter", key='STT_shop')
     
+    if voice_shop_text:
+        target, p_name, p_qty, p_unit = parse_voice_to_form(voice_shop_text)
+        st.session_state["shop_product"] = p_name
+        st.session_state["shop_qty"] = p_qty
+        st.session_state["shop_unit"] = p_unit
+        st.success(f"🛒 Formulaire mis à jour : **{p_qty} {p_unit} de {p_name}**")
+        st.rerun()
+
     col_s1, col_s2, col_s3, col_s4 = st.columns([3, 1, 2, 1])
     with col_s1:
         shop_prod_sel = st.selectbox("Produit", options=["-- Sélectionner ou taper --"] + prod_catalog, key="shop_prod_sel_box")
@@ -644,8 +562,16 @@ with st.sidebar:
     st.header("➕ Ajouter à l'inventaire")
     
     st.markdown("**🎙️ Dictée vocale pour l'inventaire :**")
-    render_voice_mic("inv")
+    voice_inv_text = speech_to_text(language='fr-FR', start_prompt="🎤 Parler", stop_prompt="🛑 Arrêter", key='STT_inv')
     
+    if voice_inv_text:
+        target, p_name, p_qty, p_unit = parse_voice_to_form(voice_inv_text)
+        st.session_state["inv_product"] = p_name
+        st.session_state["inv_qty"] = p_qty
+        st.session_state["inv_unit"] = p_unit
+        st.success(f"📦 Formulaire mis à jour : **{p_qty} {p_unit} de {p_name}**")
+        st.rerun()
+
     selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel_box")
     custom_name = st.text_input("Nom du produit", value=st.session_state["inv_product"], key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
