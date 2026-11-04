@@ -257,7 +257,6 @@ def calculate_predicted_date(name, location):
 def process_voice_command(command_text):
     text = normalize_text(command_text)
     
-    # Détection de l'action
     action = None
     if any(w in text for w in ["ajoute", "ajouter", "mets", "remets", "rajoute"]):
         action = "add"
@@ -267,14 +266,12 @@ def process_voice_command(command_text):
     if not action:
         return "Action non comprise. Essayez 'Ajoute 2 lait dans l'inventaire' ou 'Retire du beurre des courses'."
 
-    # Détection de la cible (inventaire vs courses)
-    target = "shop" # Par défaut la liste de courses
+    target = "shop"
     if any(w in text for w in ["inventaire", "frigo", "congelateur", "placard", "stock"]):
         target = "inventory"
     elif any(w in text for w in ["courses", "liste"]):
         target = "shop"
 
-    # Extraction de la quantité
     qty = 1.0
     qty_match = re.search(r'\b(\d+([.,]\d+)?)\b', text)
     if qty_match:
@@ -286,7 +283,6 @@ def process_voice_command(command_text):
                 qty = float(val)
                 break
 
-    # Nettoyage du nom du produit
     clean_text = text
     for w in ["ajoute", "ajouter", "mets", "remets", "rajoute", "retire", "retirer", "supprime", "supprimer", "enleve", "enlève", "dans", "l", "inventaire", "les", "courses", "de", "du", "la", "au", "stock"]:
         clean_text = clean_text.replace(w, "")
@@ -296,7 +292,6 @@ def process_voice_command(command_text):
     if not product_name:
         return "Je n'ai pas identifié le nom du produit."
 
-    # Exécution selon l'action et la cible
     if action == "add":
         if target == "inventory":
             default_loc = loc_list[0] if loc_list else "Frigo ❄️"
@@ -427,8 +422,34 @@ with st.container():
 
 st.divider()
 
-# --- BARRE LATÉRALE : SEULEMENT LA GESTION DES LIEUX ---
+# --- BARRE LATÉRALE : AJOUT MANUEL & GESTION DES LIEUX ---
 with st.sidebar:
+    st.header("➕ Ajouter un produit")
+    
+    selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog)
+    custom_name = st.text_input("Nom personnalisé")
+    final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
+
+    selected_loc = st.selectbox("Emplacement", options=loc_list)
+
+    col_q1, col_q2 = st.columns([1, 2])
+    with col_q1:
+        qty_input = st.number_input("Qté", min_value=0.1, value=1.0, step=1.0)
+    with col_q2:
+        unit_input = st.selectbox("Unité", options=["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"], index=0)
+
+    predicted_date = calculate_predicted_date(final_name, selected_loc)
+    expiry_input = st.date_input("Date de péremption", value=predicted_date)
+
+    if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
+        if final_name:
+            add_inventory_item(final_name, selected_loc, expiry_input.strftime("%Y-%m-%d"), qty_input, unit_input)
+            st.success(f"Ajouté : {final_name}")
+            st.rerun()
+        else:
+            st.error("Veuillez indiquer un nom de produit.")
+
+    st.divider()
     st.header("⚙️ Gestion des lieux")
     with st.expander("Ajouter ou Renommer un emplacement"):
         new_loc_add = st.text_input("Nom du nouveau lieu")
