@@ -5,7 +5,6 @@ import unicodedata
 import requests
 import re
 import datetime
-import streamlit.components.v1 as components
 
 # Configuration de la page
 st.set_page_config(
@@ -13,19 +12,6 @@ st.set_page_config(
     page_icon="🍏",
     layout="wide"
 )
-
-# --- STYLE CSS ---
-st.markdown("""
-<style>
-    .voice-box {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #d1d5db;
-        margin-bottom: 20px;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 def normalize_text(text):
     if not text:
@@ -253,12 +239,11 @@ def calculate_predicted_date(name, location):
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
-# --- ANALYSEUR VOCAL AMÉLIORÉ ---
-def process_voice_command(command_text):
+# --- ANALYSEUR DE COMMANDE ---
+def process_command(command_text):
     original_text = command_text.strip()
     text = normalize_text(original_text)
     
-    # 1. Détection de l'action
     action = None
     if any(w in text for w in ["ajoute", "ajouter", "mets", "mettre", "remets", "rajoute", "note", "prends"]):
         action = "add"
@@ -268,14 +253,12 @@ def process_voice_command(command_text):
     if not action:
         return f"❌ Action non comprise dans : « {original_text} ». Essayez 'Ajoute du lait'."
 
-    # 2. Détection de la cible (inventaire vs courses)
-    target = "shop" # Par défaut la liste de courses
+    target = "shop"
     if any(w in text for w in ["inventaire", "frigo", "congelateur", "placard", "stock"]):
         target = "inventory"
     elif any(w in text for w in ["courses", "liste"]):
         target = "shop"
 
-    # 3. Extraction de la quantité (chiffre ou mot)
     qty = 1.0
     qty_match = re.search(r'\b(\d+([.,]\d+)?)\b', text)
     if qty_match:
@@ -287,8 +270,6 @@ def process_voice_command(command_text):
                 qty = float(val)
                 break
 
-    # 4. Nettoyage pour extraire le nom du produit proprement
-    # On retire les mots parasites de la phrase
     stop_words = [
         "ajoute", "ajouter", "mets", "mettre", "remets", "rajoute", "note", "prends",
         "retire", "retirer", "supprime", "supprimer", "enleve", "enlève",
@@ -300,12 +281,9 @@ def process_voice_command(command_text):
     filtered_words = [w for w in words if w not in stop_words and not w.isdigit()]
     
     product_name = " ".join(filtered_words).strip().capitalize()
-    
     if not product_name:
-        # Fallback de secours si le nettoyage a tout effacé, on prend le texte brut sans l'action
         product_name = original_text.capitalize()
 
-    # 5. Exécution dans Google Sheets selon l'action et la cible
     _, loc_list = get_catalog_lists()
 
     if action == "add":
@@ -355,86 +333,23 @@ st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
 
 prod_catalog, loc_list = get_catalog_lists()
 
-# --- SECTION COMMANDE VOCALE ---
+# --- COMMANDE VOCALE / TEXTUELLE DIRECTE ET ROBUSTE ---
 with st.container():
-    st.markdown("### 🎙️ Assistant Vocal Intelligent")
-    st.markdown("Clique sur le micro et dicte ta commande (ex: *'Ajoute trois lait dans l'inventaire'*, *'Retire le beurre des courses'*).")
+    st.markdown("### 🎙️ Assistant Vocal & Textuel Intelligent")
+    st.markdown("Utilise le micro de ton clavier virtuel (smartphone ou PC) ou tape directement ta phrase (ex: *'Ajoute 3 lait dans l'inventaire'*).")
     
-    components.html("""
-        <div style="font-family: sans-serif; display: flex; align-items: center; gap: 10px;">
-            <button id="record-btn" onclick="toggleSpeech()" style="background-color: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 14px;">
-                🎤 Parler
-            </button>
-            <span id="status" style="color: #555; font-size: 14px;">Micro en attente...</span>
-        </div>
-        <script>
-            let recognition;
-            let isRecording = false;
-
-            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                recognition = new SpeechRecognition();
-                recognition.lang = 'fr-FR';
-                recognition.interimResults = false;
-                recognition.maxAlternatives = 1;
-
-                recognition.onstart = function() {
-                    isRecording = true;
-                    document.getElementById('record-btn').style.backgroundColor = '#f44336';
-                    document.getElementById('record-btn').innerText = '🔴 En écoute...';
-                    document.getElementById('status').innerText = 'Parlez maintenant...';
-                };
-
-                recognition.onresult = function(event) {
-                    const speechResult = event.results[0][0].transcript;
-                    document.getElementById('status').innerText = 'Transcrit : "' + speechResult + '"';
-                    const currentUrl = new URL(window.parent.location.href);
-                    currentUrl.searchParams.set('voice_cmd', speechResult);
-                    window.parent.location.href = currentUrl.toString();
-                };
-
-                recognition.onerror = function(event) {
-                    document.getElementById('status').innerText = 'Erreur micro : ' + event.error;
-                    resetButton();
-                };
-
-                recognition.onend = function() {
-                    resetButton();
-                };
-            } else {
-                document.getElementById('status').innerText = 'La reconnaissance vocale n\\'est pas supportée par ce navigateur.';
-                document.getElementById('record-btn').disabled = true;
-            }
-
-            function toggleSpeech() {
-                if (!recognition) return;
-                if (isRecording) {
-                    recognition.stop();
-                } else {
-                    recognition.start();
-                }
-            }
-
-            function resetButton() {
-                isRecording = false;
-                document.getElementById('record-btn').style.backgroundColor = '#4CAF50';
-                document.getElementById('record-btn').innerText = '🎤 Parler';
-            }
-        </script>
-    """, height=60)
-
-    query_params = st.query_params
-    if "voice_cmd" in query_params:
-        spoken_text = query_params["voice_cmd"]
-        st.query_params.clear()
+    # Utilisation d'un formulaire de saisie natif Streamlit (garantit 100% l'exécution de l'action)
+    with st.form("voice_text_form", clear_on_submit=True):
+        spoken_input = st.text_input("Commande vocale ou textuelle", placeholder="Ex: Ajoute 2 beurre dans l'inventaire")
+        submitted = st.form_submit_button("Exécuter la commande", type="primary")
         
-        result_msg = process_voice_command(spoken_text)
-        st.info(f"🗣️ **Vous avez dit :** « {spoken_text} »")
-        if "✅" in result_msg or "🗑️" in result_msg:
-            st.success(result_msg)
-            st.rerun()
-        else:
-            st.warning(result_msg)
+        if submitted and spoken_input:
+            msg = process_command(spoken_input)
+            if "✅" in msg or "🗑️" in msg:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.warning(msg)
 
 st.divider()
 
@@ -689,7 +604,7 @@ with tab_recipes:
             },
             {
                 "title": "steaks hachés poêlés et risotto/pâtes express",
-                    "core": ["steak haché", "beurre"],
+                "core": ["steak haché", "beurre"],
                 "extras": ["Steaks frais de chez le boucher", "Tomates fraîches ou purée de tomates", "Oignons"],
                 "desc": "Faites saisir vos steaks et préparez une belle sauce maison. Complétez avec des tomates fraîches et des oignons."
             },
