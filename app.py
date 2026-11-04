@@ -63,7 +63,7 @@ def init_google_sheets():
             default_products = [
                 "Beurre", "Crème fraîche", "Fromage", "Jambon", 
                 "Lait", "Œufs", "Pâtes", "Poulet", "Riz", 
-                "Steak haché", "Yaourt nature"
+                "Steak haché", "Yaourt nature", "Merguez"
             ]
             default_locations = [
                 "Frigo ❄️", "Congélateur 🧊 - Tiroir 1", 
@@ -272,7 +272,7 @@ def calculate_predicted_date(name, location):
     elif "placard" in l_lower:
         days = 365
     else:
-        meat = ["poulet", "steak", "viand", "poisson", "jambon"]
+        meat = ["poulet", "steak", "viand", "poisson", "jambon", "merguez", "lardons"]
         dairy = ["beurre", "creme", "fromag", "yaourt", "lait"]
         if any(k in n_lower for k in meat):
             days = 3
@@ -285,7 +285,7 @@ def calculate_predicted_date(name, location):
 
 def categorize_product(name):
     n = normalize_text(name)
-    meat = ["poulet", "steak", "viande", "poisson", "jambon", "lardons", "saucisse", "boeuf", "veau", "porc", "dinde"]
+    meat = ["poulet", "steak", "viande", "poisson", "jambon", "lardons", "saucisse", "boeuf", "veau", "porc", "dinde", "merguez"]
     dairy = ["lait", "beurre", "creme", "fromage", "yaourt", "lben", "faisselle"]
     eggs = ["oeuf", "œufs"]
     fruits_vegs = ["tomate", "salade", "carotte", "courgette", "pomme", "banana", "fruit", "legume", "champignon", "oignon"]
@@ -494,7 +494,7 @@ with tab_inv:
                     delete_inventory_item(item_id)
                     st.rerun()
 
-# --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS ---
+# --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS (SANS FILTRE STRICT DE CATÉGORIE) ---
 with tab_expiry:
     st.subheader("⏳ Produits périmés ou à consommer dans les 7 jours")
     
@@ -507,6 +507,7 @@ with tab_expiry:
         try:
             exp_obj = datetime.strptime(expiry_date, "%Y-%m-%d").date()
             delta = (exp_obj - today).days
+            # On prend TOUS les produits dont la date d'expiration est inférieure ou égale à 7 jours (ou dépassée)
             if delta <= 7:
                 upcoming_expiry_items.append((item, delta))
         except:
@@ -517,6 +518,7 @@ with tab_expiry:
     else:
         categorized_dict = {}
         for item, delta in upcoming_expiry_items:
+            # On utilise la catégorisation indicative, mais aucun produit n'est filtré/omis
             cat = categorize_product(item[1])
             if cat not in categorized_dict:
                 categorized_dict[cat] = []
