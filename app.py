@@ -487,6 +487,7 @@ with tab_inv:
 
     search_query = st.session_state.get("sidebar_search", "")
     filter_loc = st.session_state.get("sidebar_loc_filter", "Tous les lieux")
+    filter_cat = st.session_state.get("sidebar_cat_filter", "Toutes les catégories")
 
     filtered_items = []
     for item in items:
@@ -494,6 +495,8 @@ with tab_inv:
         if search_query and normalize_text(search_query) not in normalize_text(name):
             continue
         if filter_loc != "Tous les lieux" and location != filter_loc:
+            continue
+        if filter_cat != "Toutes les catégories" and category != filter_cat:
             continue
         filtered_items.append(item)
 
@@ -615,6 +618,8 @@ with st.sidebar:
     st.header("🔍 Filtrer l'inventaire")
     st.text_input("Filtrer par article", key="sidebar_search")
     st.selectbox("Filtrer par emplacement", options=["Tous les lieux"] + loc_list, key="sidebar_loc_filter")
+    category_options = ["🥩 Viandes & Poissons", "🥛 Produits Laitiers", "🍲 Produits préparés", "🥚 Œufs", "🍎 Fruits & Légumes", "📦 Autres"]
+    st.selectbox("Filtrer par catégorie", options=["Toutes les catégories"] + category_options, key="sidebar_cat_filter")
 
     st.divider()
     st.header("➕ Ajouter à l'inventaire")
@@ -624,7 +629,6 @@ with st.sidebar:
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
-    category_options = ["🥩 Viandes & Poissons", "🥛 Produits Laitiers", "🍲 Produits préparés", "🥚 Œufs", "🍎 Fruits & Légumes", "📦 Autres"]
     cat_default_idx = category_options.index(default_cat_suggestion) if default_cat_suggestion in category_options else 5
     
     selected_category = st.selectbox("Catégorie", options=category_options, index=cat_default_idx, key="inv_cat_input_box")
