@@ -51,6 +51,12 @@ def init_google_sheets():
         if "inventory" not in sheet_names:
             sheet_inv = spreadsheet.add_worksheet(title="inventory", rows=100, cols=10)
             sheet_inv.append_row(["id", "name", "location", "expiry_date", "quantity", "unit", "category"])
+        else:
+            # S'assure que l'en-tête de la 7ème colonne est bien 'category'
+            sheet_inv = spreadsheet.worksheet("inventory")
+            header = sheet_inv.row_values(1)
+            if len(header) < 7:
+                sheet_inv.update_cell(1, 7, "category")
         
         if "shopping_list" not in sheet_names:
             sheet_shop = spreadsheet.add_worksheet(title="shopping_list", rows=100, cols=5)
@@ -126,7 +132,6 @@ def categorize_product(name):
         return "📦 Autres"
 
 def save_product_category_to_catalog(product_name, category):
-    """Sauvegarde de manière persistante dans la feuille Google Sheets 'catalog'"""
     if "catalog_cache" not in st.session_state:
         st.session_state["catalog_cache"] = {}
     st.session_state["catalog_cache"][product_name.strip().lower()] = category
@@ -212,8 +217,10 @@ def update_item_category(item_id, product_name, new_category):
         return
     try:
         sheet = db.worksheet("inventory")
+        # Recherche directe de la ligne par l'ID unique (colonne 1)
         cell = sheet.find(str(item_id))
         if cell:
+            # Met à jour la 7ème colonne (category) de la ligne exacte
             sheet.update_cell(cell.row, 7, new_category)
         save_product_category_to_catalog(product_name, new_category)
     except Exception as e:
