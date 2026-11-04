@@ -81,8 +81,9 @@ def init_google_sheets():
 
 db = init_google_sheets()
 
+@st.cache_data(ttl=30)
 def get_catalog_categories():
-    """Récupère les catégories pré-enregistrées dans le catalogue si elles existent"""
+    """Récupère les catégories du catalogue de manière mise en cache pour éviter le quota 429"""
     if db is None:
         return {}
     try:
@@ -99,7 +100,6 @@ def get_catalog_categories():
         return {}
 
 def categorize_product(name):
-    # Vérifie d'abord si le produit a une catégorie enregistrée dans le catalogue
     catalog_cats = get_catalog_categories()
     clean_name = str(name).strip().lower()
     if clean_name in catalog_cats:
@@ -126,18 +126,13 @@ def categorize_product(name):
         return "📦 Autres"
 
 def save_product_category_to_catalog(product_name, category):
-    """Sauvegarde ou met à jour la catégorie d'un produit dans le catalogue pour les utilisations futures"""
+    """Sauvegarde ou met à jour la catégorie dans le catalogue"""
     if db is None:
         return
     try:
         cat_sheet = db.worksheet("catalog")
         records = cat_sheet.get_all_records()
         
-        # Vérifie si le header possède la colonne category, sinon l'ajoute
-        headers = cat_sheet.row_values(1)
-        if "category" not in [h.lower() for h in headers]:
-            cat_sheet.update_cell(1, 3, "category")
-
         found_row = None
         for i, r in enumerate(records, start=2):
             if str(r.get("product_name", "")).strip().lower() == product_name.strip().lower():
@@ -148,6 +143,9 @@ def save_product_category_to_catalog(product_name, category):
             cat_sheet.update_cell(found_row, 3, category)
         else:
             cat_sheet.append_row([product_name, "", category])
+        
+        # Nettoie le cache pour prendre en compte le changement immédiatement
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Erreur lors de la mise à jour du catalogue : {e}")
 
@@ -216,7 +214,6 @@ def update_item_category(item_id, product_name, new_category):
         cell = sheet.find(str(item_id))
         if cell:
             sheet.update_cell(cell.row, 7, new_category)
-        # Sauvegarde permanente dans le catalogue
         save_product_category_to_catalog(product_name, new_category)
     except Exception as e:
         st.error(f"Erreur de mise à jour de la catégorie : {e}")
@@ -285,11 +282,6 @@ def add_to_shopping_list(name, quantity, unit):
         records = sheet.get_all_records()
         new_id = max([r.get("id", 0) for r in records], default=0) + 1
         sheet.append_row([new_id, name, quantity, unit])
-        
-        cat_sheet = db.worksheet("catalog")
-        prods = [str(col) for col in cat_sheet.col_values(1) if col]
-        if name not in prods:
-            cat_sheet.append_row([name, "", categorize_product(name)])
     except Exception as e:
         st.error(f"Erreur lors de l'ajout aux courses : {e}")
 
@@ -538,7 +530,6 @@ with tab_inv:
                 st.caption(f"Expire le : {expiry_fr}  •  [{status_text}]")
                 
             with col2:
-                # Modification de la catégorie directement modifiable
                 cat_idx = category_options.index(category) if category in category_options else 5
                 new_cat_choice = st.selectbox("Catégorie", options=category_options, index=cat_idx, key=f"cat_sel_{item_id}", label_visibility="collapsed")
                 if new_cat_choice != category:
@@ -630,7 +621,7 @@ with st.sidebar:
     st.header("➕ Ajouter à l'inventaire")
     
     selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel_box")
-    custom_name = st.text_input("Nom du produit", key="inv_custom_input_box")
+    custom_name = st.text_input("Ou saisir le nom", key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
