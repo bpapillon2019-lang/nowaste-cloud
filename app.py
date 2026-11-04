@@ -52,7 +52,6 @@ def init_google_sheets():
             sheet_inv = spreadsheet.add_worksheet(title="inventory", rows=100, cols=10)
             sheet_inv.append_row(["id", "name", "location", "expiry_date", "quantity", "unit", "category"])
         else:
-            # S'assure que l'en-tête de la 7ème colonne est bien 'category'
             sheet_inv = spreadsheet.worksheet("inventory")
             header = sheet_inv.row_values(1)
             if len(header) < 7:
@@ -185,28 +184,16 @@ def get_all_inventory():
         return st.session_state.get("cached_inventory", [])
 
 def add_inventory_item(name, location, expiry_date, quantity, unit, category):
+    """Ajoute systématiquement une nouvelle ligne indépendante dans l'inventaire (gestion des dates multiples)"""
     if db is None:
         return
     try:
         sheet = db.worksheet("inventory")
         records = sheet.get_all_records()
         
-        existing_row = None
-        for r in records:
-            if str(r.get("name", "")).strip().lower() == name.strip().lower() and str(r.get("unit", "")) == unit:
-                existing_row = r
-                break
-
-        if existing_row:
-            cell = sheet.find(str(existing_row["id"]))
-            if cell:
-                current_qty = float(existing_row.get("quantity", 0))
-                new_qty = current_qty + quantity
-                sheet.update_cell(cell.row, 5, new_qty)
-                sheet.update_cell(cell.row, 7, category)
-        else:
-            new_id = max([r.get("id", 0) for r in records], default=0) + 1
-            sheet.append_row([new_id, name, location, expiry_date, quantity, unit, category])
+        # Génère toujours un nouvel ID unique pour créer une ligne distincte
+        new_id = max([r.get("id", 0) for r in records], default=0) + 1
+        sheet.append_row([new_id, name, location, expiry_date, quantity, unit, category])
         
         save_product_category_to_catalog(name, category)
     except Exception as e:
@@ -217,10 +204,8 @@ def update_item_category(item_id, product_name, new_category):
         return
     try:
         sheet = db.worksheet("inventory")
-        # Recherche directe de la ligne par l'ID unique (colonne 1)
         cell = sheet.find(str(item_id))
         if cell:
-            # Met à jour la 7ème colonne (category) de la ligne exacte
             sheet.update_cell(cell.row, 7, new_category)
         save_product_category_to_catalog(product_name, new_category)
     except Exception as e:
