@@ -409,7 +409,9 @@ with tab_shop:
                         chosen_loc = st.selectbox(f"Emplacement pour {s_name}", options=loc_list, index=loc_list.index(default_target_loc) if default_target_loc in loc_list else 0, key=f"val_loc_{s_id}")
                     with c_date:
                         pred_date = calculate_predicted_date(s_name, chosen_loc)
-                        chosen_date = st.date_input(f"Date de péremption pour {s_name} (JJ/MM/AAAA)", value=pred_date, key=f"val_date_{s_id}")
+                        chosen_date = st.date_input(f"Date de péremption pour {s_name}", value=pred_date, key=f"val_date_{s_id}")
+                        # Affichage textuel explicite de la date sélectionnée au format français JJ/MM/AAAA
+                        st.caption(fmt := f"Sélectionné : {chosen_date.strftime('%d/%m/%Y')}")
                     
                     batch_expiry_data[s_id] = (s_item, chosen_loc, chosen_date)
                     st.write("---")
@@ -579,7 +581,8 @@ with st.sidebar:
         unit_input = st.selectbox("Unité", options=unit_options, key="inv_u_select_box")
 
     predicted_date = calculate_predicted_date(final_name, selected_loc)
-    expiry_input = st.date_input("Date de péremption (JJ/MM/AAAA)", value=predicted_date)
+    expiry_input = st.date_input("Date de péremption", value=predicted_date)
+    st.caption(f"Format JJ/MM/AAAA : {expiry_input.strftime('%d/%m/%Y')}")
 
     if st.button("Ajouter à l'inventaire", type="primary", use_container_width=True):
         if final_name:
