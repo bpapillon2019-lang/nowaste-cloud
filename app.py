@@ -370,12 +370,12 @@ for it in all_inv_items:
         delta = (exp_dt - today_date).days
         if delta <= 7:
             alert_count += 1
-        if delta <= 3: # Produits périmés ou à consommer dans les 3 jours
+        if delta <= 3:
             urgent_critical_count += 1
     except:
         pass
 
-# --- BANNIÈRE ROUGE D' ALERTE (si un produit pérempte dans les 3 jours ou est périmé) ---
+# --- BANNIÈRE ROUGE D'ALERTE ---
 if urgent_critical_count > 0:
     st.error(f"🚨 **ALERTE URGENTE :** Vous avez **{urgent_critical_count} produit(s)** périmé(s) ou dont la date de péremption est inférieure ou égale à 3 jours ! Veuillez consulter l'onglet dédié.")
 
@@ -510,17 +510,24 @@ with tab_inv:
 
         expiry_fr = format_date_fr(expiry_date)
         status_text = "En cours"
+        is_urgent = False
         try:
             exp_obj = datetime.datetime.strptime(expiry_date.strip(), "%Y-%m-%d").date()
             delta = (exp_obj - today_date).days
             if delta < 0:
                 status_text = f"Périmé ({abs(delta)} j)"
+                is_urgent = True
             elif 0 <= delta <= 3:
                 status_text = f"Bientôt ({delta} j)"
+                is_urgent = True
         except:
             pass
 
-        with st.container(border=True):
+        # Style conditionnel : si le produit périme dans les 3 jours ou est périmé, on l'entoure d'un cadre rouge
+        container_border_style = "border: 2px solid #ff4b4b; border-radius: 8px; padding: 10px; margin-bottom: 10px;" if is_urgent else "border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 10px;"
+
+        with st.container():
+            st.markdown(f'<div style="{container_border_style}">', unsafe_allow_html=True)
             col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1.8, 1, 1, 0.8])
             
             with col1:
@@ -559,6 +566,7 @@ with tab_inv:
                 if st.button("❌", key=f"del_{item_id}"):
                     delete_inventory_item(item_id)
                     st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # --- ONGLET 3 : PÉRIMÉS SOUS 7 JOURS ---
 with tab_expiry:
@@ -602,13 +610,17 @@ with tab_expiry:
                 else:
                     badge = f"🟠 **Expire dans {delta} jour(s)** (le {expiry_fr})"
                 
-                with st.container(border=True):
-                    c1, c2 = st.columns([3, 1])
-                    with c1:
-                        st.markdown(f"**{name}** — {quantity} {unit}")
-                        st.caption(f"Emplacement : {location}")
-                    with c2:
-                        st.markdown(badge)
+                # Cadre rouge si delta <= 3
+                box_style = "border: 2px solid #ff4b4b; border-radius: 8px; padding: 10px; margin-bottom: 10px;" if delta <= 3 else "border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 10px;"
+
+                st.markdown(f'<div style="{box_style}">', unsafe_allow_html=True)
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    st.markdown(f"**{name}** — {quantity} {unit}")
+                    st.caption(f"Emplacement : {location}")
+                with c2:
+                    st.markdown(badge)
+                st.markdown('</div>', unsafe_allow_html=True)
 
 # --- BARRE LATÉRALE : FILTRES, FORMULAIRE & GESTION DES LIEUX ---
 with st.sidebar:
