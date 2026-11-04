@@ -253,51 +253,67 @@ def calculate_predicted_date(name, location):
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
-# --- ANALYSEUR VOCAL INTELLIGENT (PARSING) ---
+# --- ANALYSEUR VOCAL AMÉLIORÉ ---
 def process_voice_command(command_text):
-    text = normalize_text(command_text)
+    original_text = command_text.strip()
+    text = normalize_text(original_text)
     
+    # 1. Détection de l'action
     action = None
-    if any(w in text for w in ["ajoute", "ajouter", "mets", "remets", "rajoute"]):
+    if any(w in text for w in ["ajoute", "ajouter", "mets", "mettre", "remets", "rajoute", "note", "prends"]):
         action = "add"
     elif any(w in text for w in ["retire", "retirer", "supprime", "supprimer", "enleve", "enlève"]):
         action = "remove"
         
     if not action:
-        return "Action non comprise. Essayez 'Ajoute 2 lait dans l'inventaire' ou 'Retire du beurre des courses'."
+        return f"❌ Action non comprise dans : « {original_text} ». Essayez 'Ajoute du lait'."
 
-    target = "shop"
+    # 2. Détection de la cible (inventaire vs courses)
+    target = "shop" # Par défaut la liste de courses
     if any(w in text for w in ["inventaire", "frigo", "congelateur", "placard", "stock"]):
         target = "inventory"
     elif any(w in text for w in ["courses", "liste"]):
         target = "shop"
 
+    # 3. Extraction de la quantité (chiffre ou mot)
     qty = 1.0
     qty_match = re.search(r'\b(\d+([.,]\d+)?)\b', text)
     if qty_match:
         qty = float(qty_match.group(1).replace(',', '.'))
     else:
-        word_to_num = {"un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "dix": 10}
+        word_to_num = {"un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9, "dix": 10}
         for word, val in word_to_num.items():
             if f" {word} " in f" {text} ":
                 qty = float(val)
                 break
 
-    clean_text = text
-    for w in ["ajoute", "ajouter", "mets", "remets", "rajoute", "retire", "retirer", "supprime", "supprimer", "enleve", "enlève", "dans", "l", "inventaire", "les", "courses", "de", "du", "la", "au", "stock"]:
-        clean_text = clean_text.replace(w, "")
+    # 4. Nettoyage pour extraire le nom du produit proprement
+    # On retire les mots parasites de la phrase
+    stop_words = [
+        "ajoute", "ajouter", "mets", "mettre", "remets", "rajoute", "note", "prends",
+        "retire", "retirer", "supprime", "supprimer", "enleve", "enlève",
+        "dans", "l", "inventaire", "les", "courses", "de", "du", "la", "au", "stock",
+        "un", "une", "des", "le", "les", "et", "à", "a"
+    ]
     
-    product_name = re.sub(r'\d+', '', clean_text).strip().capitalize()
+    words = text.split()
+    filtered_words = [w for w in words if w not in stop_words and not w.isdigit()]
+    
+    product_name = " ".join(filtered_words).strip().capitalize()
     
     if not product_name:
-        return "Je n'ai pas identifié le nom du produit."
+        # Fallback de secours si le nettoyage a tout effacé, on prend le texte brut sans l'action
+        product_name = original_text.capitalize()
+
+    # 5. Exécution dans Google Sheets selon l'action et la cible
+    _, loc_list = get_catalog_lists()
 
     if action == "add":
         if target == "inventory":
             default_loc = loc_list[0] if loc_list else "Frigo ❄️"
             pred_date = calculate_predicted_date(product_name, default_loc)
             add_inventory_item(product_name, default_loc, pred_date.strftime("%Y-%m-%d"), qty, "unité(s)")
-            return f"✅ Ajouté à l'inventaire : {qty} x {product_name}"
+            return f"✅ Ajouté à l'inventaire ({default_loc}) : {qty} x {product_name}"
         else:
             add_to_shopping_list(product_name, qty, "unité(s)")
             return f"✅ Ajouté aux courses : {qty} x {product_name}"
@@ -307,7 +323,7 @@ def process_voice_command(command_text):
             inv_items = get_all_inventory()
             found = False
             for i_id, i_name, i_loc, i_exp, i_qty, i_unit in inv_items:
-                if normalize_text(product_name) in normalize_text(i_name):
+                if normalize_text(product_name) in normalize_text(i_name) or normalize_text(i_name) in normalize_text(product_name):
                     new_q = i_qty - qty
                     if new_q <= 0:
                         delete_inventory_item(i_id)
@@ -323,7 +339,7 @@ def process_voice_command(command_text):
             shop_items = get_shopping_list()
             found = False
             for s_id, s_name, s_qty, s_unit in shop_items:
-                if normalize_text(product_name) in normalize_text(s_name):
+                if normalize_text(product_name) in normalize_text(s_name) or normalize_text(s_name) in normalize_text(product_name):
                     delete_shopping_item(s_id)
                     found = True
                     break
@@ -673,7 +689,7 @@ with tab_recipes:
             },
             {
                 "title": "steaks hachés poêlés et risotto/pâtes express",
-                "core": ["steak haché", "beurre"],
+                    "core": ["steak haché", "beurre"],
                 "extras": ["Steaks frais de chez le boucher", "Tomates fraîches ou purée de tomates", "Oignons"],
                 "desc": "Faites saisir vos steaks et préparez une belle sauce maison. Complétez avec des tomates fraîches et des oignons."
             },
