@@ -5,6 +5,7 @@ import unicodedata
 import requests
 import re
 import datetime
+import streamlit.components.v1 as components
 
 # Configuration de la page
 st.set_page_config(
@@ -12,6 +13,19 @@ st.set_page_config(
     page_icon="🍏",
     layout="wide"
 )
+
+# --- STYLE CSS ---
+st.markdown("""
+<style>
+    .voice-box {
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        margin-bottom: 20px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 def normalize_text(text):
     if not text:
@@ -239,8 +253,8 @@ def calculate_predicted_date(name, location):
             
     return datetime.datetime.now().date() + datetime.timedelta(days=days)
 
-# --- ANALYSEUR DE COMMANDE ---
-def process_command(command_text):
+# --- ANALYSEUR VOCAL OPTIMISÉ ---
+def process_voice_command(command_text):
     original_text = command_text.strip()
     text = normalize_text(original_text)
     
@@ -251,7 +265,7 @@ def process_command(command_text):
         action = "remove"
         
     if not action:
-        return f"❌ Action non comprise dans : « {original_text} ». Essayez 'Ajoute du lait'."
+        return f"❌ Action non comprise : « {original_text} »."
 
     target = "shop"
     if any(w in text for w in ["inventaire", "frigo", "congelateur", "placard", "stock"]):
@@ -333,23 +347,90 @@ st.title("🍏 NoWaste Cloud - Gestion d'Inventaire, Courses & Recettes")
 
 prod_catalog, loc_list = get_catalog_lists()
 
-# --- COMMANDE VOCALE / TEXTUELLE DIRECTE ET ROBUSTE ---
+# --- ASSISTANT VOCAL AUTOMATIQUE (SANS CLIC DE VALIDATION) ---
 with st.container():
-    st.markdown("### 🎙️ Assistant Vocal & Textuel Intelligent")
-    st.markdown("Utilise le micro de ton clavier virtuel (smartphone ou PC) ou tape directement ta phrase (ex: *'Ajoute 3 lait dans l'inventaire'*).")
+    st.markdown("### 🎙️ Assistant Vocal Intelligent (Auto-validation)")
+    st.markdown("Clique sur **🎤 Parler**, dicte ta phrase : l'action s'exécute **toute seule** dès que tu as fini de parler !")
     
-    # Utilisation d'un formulaire de saisie natif Streamlit (garantit 100% l'exécution de l'action)
-    with st.form("voice_text_form", clear_on_submit=True):
-        spoken_input = st.text_input("Commande vocale ou textuelle", placeholder="Ex: Ajoute 2 beurre dans l'inventaire")
-        submitted = st.form_submit_button("Exécuter la commande", type="primary")
+    # Composant HTML/JS qui déclenche l'action dès la fin de la reconnaissance vocale
+    components.html("""
+        <div style="font-family: sans-serif; display: flex; align-items: center; gap: 15px; padding: 5px 0;">
+            <button id="record-btn" onclick="toggleSpeech()" style="background-color: #4CAF50; color: white; border: none; padding: 12px 24px; border-radius: 25px; font-weight: bold; cursor: pointer; font-size: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+                🎤 Parler
+            </button>
+            <span id="status" style="color: #333; font-size: 14px; font-weight: 500;">Prêt à écouter...</span>
+        </div>
+        <script>
+            let recognition;
+            let isRecording = false;
+
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.lang = 'fr-FR';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+
+                recognition.onstart = function() {
+                    isRecording = true;
+                    document.getElementById('record-btn').style.backgroundColor = '#f44336';
+                    document.getElementById('record-btn').innerText = '🔴 En écoute...';
+                    document.getElementById('status').innerText = 'Parlez maintenant...';
+                };
+
+                recognition.onresult = function(event) {
+                    const speechResult = event.results[0][0].transcript;
+                    document.getElementById('status').innerText = 'Compris : "' + speechResult + '" - Enregistrement...';
+                    
+                    // Transmission directe et rechargement automatique de la page sans clic
+                    const currentUrl = new URL(window.parent.location.href);
+                    currentUrl.searchParams.set('voice_cmd', speechResult);
+                    window.parent.location.href = currentUrl.toString();
+                };
+
+                recognition.onerror = function(event) {
+                    document.getElementById('status').innerText = 'Erreur : ' + event.error;
+                    resetButton();
+                };
+
+                recognition.onend = function() {
+                    resetButton();
+                };
+            } else {
+                document.getElementById('status').innerText = 'Reconnaissance vocale non supportée par ce navigateur.';
+                document.getElementById('record-btn').disabled = true;
+            }
+
+            function toggleSpeech() {
+                if (!recognition) return;
+                if (isRecording) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            }
+
+            function resetButton() {
+                isRecording = false;
+                document.getElementById('record-btn').style.backgroundColor = '#4CAF50';
+                document.getElementById('record-btn').innerText = '🎤 Parler';
+            }
+        </script>
+    """, height=70)
+
+    # Récupération automatique de la commande transmise par la voix
+    query_params = st.query_params
+    if "voice_cmd" in query_params:
+        spoken_text = query_params["voice_cmd"]
+        st.query_params.clear()
         
-        if submitted and spoken_input:
-            msg = process_command(spoken_input)
-            if "✅" in msg or "🗑️" in msg:
-                st.success(msg)
-                st.rerun()
-            else:
-                st.warning(msg)
+        result_msg = process_voice_command(spoken_text)
+        st.info(f"🗣️ **Commande vocale :** « {spoken_text} »")
+        if "✅" in result_msg or "🗑️" in result_msg:
+            st.success(result_msg)
+            st.rerun()
+        else:
+            st.warning(result_msg)
 
 st.divider()
 
