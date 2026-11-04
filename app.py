@@ -24,7 +24,6 @@ def normalize_text(text):
     return text
 
 def format_date_fr(date_str):
-    """Convertit une date YYYY-MM-DD en JJ/MM/AAAA"""
     if not date_str:
         return ""
     try:
@@ -81,23 +80,25 @@ def init_google_sheets():
 
 db = init_google_sheets()
 
-@st.cache_data(ttl=30)
+# Utilisation de st.session_state pour stocker le catalogue et éviter les requêtes répétées
 def get_catalog_categories():
-    """Récupère les catégories du catalogue de manière mise en cache pour éviter le quota 429"""
-    if db is None:
-        return {}
-    try:
-        cat_sheet = db.worksheet("catalog")
-        records = cat_sheet.get_all_records()
-        cat_map = {}
-        for r in records:
-            p_name = str(r.get("product_name", "")).strip().lower()
-            c_name = str(r.get("category", "")).strip()
-            if p_name and c_name:
-                cat_map[p_name] = c_name
-        return cat_map
-    except:
-        return {}
+    if "catalog_cache" in st.session_state:
+        return st.session_state["catalog_cache"]
+    
+    cat_map = {}
+    if db is not None:
+        try:
+            cat_sheet = db.worksheet("catalog")
+            records = cat_sheet.get_all_records()
+            for r in records:
+                p_name = str(r.get("product_name", "")).strip().lower()
+                c_name = str(r.get("category", "")).strip()
+                if p_name and c_name:
+                    cat_map[p_name] = c_name
+        except:
+            pass
+    st.session_state["catalog_cache"] = cat_map
+    return cat_map
 
 def categorize_product(name):
     catalog_cats = get_catalog_categories()
@@ -126,10 +127,13 @@ def categorize_product(name):
         return "📦 Autres"
 
 def save_product_category_to_catalog(product_name, category):
-    """Sauvegarde ou met à jour la catégorie dans le catalogue"""
     if db is None:
         return
     try:
+        # Met à jour le cache local instantanément
+        if "catalog_cache" in st.session_state:
+            st.session_state["catalog_cache"][product_name.strip().lower()] = category
+
         cat_sheet = db.worksheet("catalog")
         records = cat_sheet.get_all_records()
         
@@ -143,9 +147,6 @@ def save_product_category_to_catalog(product_name, category):
             cat_sheet.update_cell(found_row, 3, category)
         else:
             cat_sheet.append_row([product_name, "", category])
-        
-        # Nettoie le cache pour prendre en compte le changement immédiatement
-        st.cache_data.clear()
     except Exception as e:
         st.error(f"Erreur lors de la mise à jour du catalogue : {e}")
 
@@ -621,7 +622,7 @@ with st.sidebar:
     st.header("➕ Ajouter à l'inventaire")
     
     selected_prod = st.selectbox("Produit du catalogue", options=["-- Sélectionner ou taper --"] + prod_catalog, key="inv_cat_sel_box")
-    custom_name = st.text_input("Ou saisir le nom", key="inv_custom_input_box")
+    custom_name = st.text_input("Nom du produit", key="inv_custom_input_box")
     final_name = custom_name.strip() if custom_name.strip() else (selected_prod if selected_prod != "-- Sélectionner ou taper --" else "")
 
     default_cat_suggestion = categorize_product(final_name) if final_name else "📦 Autres"
