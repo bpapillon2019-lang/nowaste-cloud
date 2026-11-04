@@ -124,7 +124,7 @@ def add_inventory_item(name, location, expiry_date, quantity, unit):
     except Exception as e:
         st.error(f"Erreur lors de l'ajout à l'inventaire : {e}")
 
-def update_item_quantity(item_id, new_qty):
+def update_item_quantity_and_unit(item_id, new_qty, new_unit):
     if db is None:
         return
     try:
@@ -132,8 +132,9 @@ def update_item_quantity(item_id, new_qty):
         cell = sheet.find(str(item_id))
         if cell:
             sheet.update_cell(cell.row, 5, new_qty)
+            sheet.update_cell(cell.row, 6, new_unit)
     except Exception as e:
-        st.error(f"Erreur de mise à jour de la quantité : {e}")
+        st.error(f"Erreur de mise à jour de la quantité/unité : {e}")
 
 def update_item_location(item_id, new_loc, new_expiry):
     if db is None:
@@ -405,6 +406,8 @@ with tab_inv:
     if not filtered_items:
         st.info("Aucun produit ne correspond aux critères dans l'inventaire.")
 
+    unit_options = ["unité(s)", "g", "kg", "ml", "L", "boîte(s)", "pack(s)"]
+
     for item in filtered_items:
         item_id, name, location, expiry_date, quantity, unit = item
 
@@ -420,7 +423,7 @@ with tab_inv:
             pass
 
         with st.container(border=True):
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            col1, col2, col3, col4, col5 = st.columns([2.5, 2, 1.5, 1.5, 1])
             
             with col1:
                 st.markdown(f"**{name}**")
@@ -434,16 +437,20 @@ with tab_inv:
                     st.rerun()
                 
             with col3:
-                # Remplacement de l'affichage par un champ numérique direct (number_input)
-                new_qty = st.number_input("Quantité", min_value=0.0, value=float(quantity), step=1.0, key=f"qty_input_{item_id}", label_visibility="collapsed")
-                if new_qty != quantity:
-                    if new_qty <= 0:
-                        delete_inventory_item(item_id)
-                    else:
-                        update_item_quantity(item_id, new_qty)
-                    st.rerun()
-
+                new_qty = st.number_input("Qté", min_value=0.0, value=float(quantity), step=1.0, key=f"qty_input_{item_id}", label_visibility="collapsed")
             with col4:
+                current_unit_idx = unit_options.index(unit) if unit in unit_options else 0
+                new_unit = st.selectbox("Unité", options=unit_options, index=current_unit_idx, key=f"unit_sel_{item_id}", label_visibility="collapsed")
+
+            # Mise à jour si la quantité ou l'unité change
+            if new_qty != quantity or new_unit != unit:
+                if new_qty <= 0:
+                    delete_inventory_item(item_id)
+                else:
+                    update_item_quantity_and_unit(item_id, new_qty, new_unit)
+                st.rerun()
+
+            with col5:
                 if st.button("❌", key=f"del_{item_id}"):
                     delete_inventory_item(item_id)
                     st.rerun()
